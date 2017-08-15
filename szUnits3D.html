@@ -41,6 +41,7 @@
       "esri/Map",
       "esri/views/SceneView",
       "esri/layers/FeatureLayer",
+      "esri/layers/MapImageLayer",
       "esri/renderers/SimpleRenderer",
       "esri/renderers/Renderer",
       "esri/symbols/PointSymbol3D",
@@ -55,7 +56,7 @@
       "dojo/on",
       "dojo/dom",
       "dojo/domReady!"
-    ], function(Map, SceneView, FeatureLayer, SimpleRenderer, Renderer, PointSymbol3D, ObjectSymbol3DLayer, LayerList, Query, urlUtils, GraphicsLayer, Graphic, watchUtils, on, dom) {	
+    ], function(Map, SceneView, FeatureLayer, MapImageLayer, SimpleRenderer, Renderer, PointSymbol3D, ObjectSymbol3DLayer, LayerList, Query, urlUtils, GraphicsLayer, Graphic, watchUtils, on, dom) {	
 	
       // Create the Map
       var map = new Map({
@@ -95,6 +96,24 @@
       var borderRenderer = new SimpleRenderer({
         symbol: borderSymbol
       });
+      
+      var szMapService = new MapImageLayer({
+        url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer"
+      });
+      
+      for (var layer in szMapService.allSublayers) {
+        console.log( layer );
+        var parentTitle = layer.parent.title;
+        console.log( parentTitle );
+        if ( parentTitle == "Derived ShoreZone Attributes" || parentTitle == "Response Attributes" || parentTitle == "Biological Attributes" ) {
+            count++;
+        };
+      };
+    
+      
+      
+      console.log( "Layers added:" );
+      console.log( count );
       
       // Create FeatureLayer, set the elevation mode and add to the map
       var layerBounds = new FeatureLayer({
