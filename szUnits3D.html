@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>Use elevationInfo in 3D visualization - 4.3</title>
+  <style>
+    html,
+    body,
+    #viewDiv {
+      padding: 0;
+      margin: 0;
+      height: 100%;
+      width: 100%;
+    }
+
+    #elevationDiv {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      padding: 12px;d
+      background-color: rgba(0, 0, 0, 0.5);
+      color: white;
+    }
+    
+    #queryDiv {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      padding: 12px;
+      background-color: rgba(0, 0, 0, 0.5);
+      color: white;
+    }
+  </style>
+
+  <link rel="stylesheet" href="https://js.arcgis.com/4.3/esri/css/main.css">
+  <script src="https://js.arcgis.com/4.3/"></script>
+
+  <script>
+    require([
+      "esri/Map",
+      "esri/views/SceneView",
+      "esri/layers/FeatureLayer",
+      "esri/renderers/SimpleRenderer",
+      "esri/renderers/Renderer",
+      "esri/symbols/PointSymbol3D",
+      "esri/symbols/ObjectSymbol3DLayer",
+      "esri/widgets/LayerList",
+      "esri/tasks/support/Query",
+	  "esri/core/urlUtils",
+      "esri/layers/GraphicsLayer", 
+      "esri/Graphic",
+      "esri/core/watchUtils",
+        
+      "dojo/on",
+      "dojo/dom",
+      "dojo/domReady!"
+    ], function(Map, SceneView, FeatureLayer, SimpleRenderer, Renderer, PointSymbol3D, ObjectSymbol3DLayer, LayerList, Query, urlUtils, GraphicsLayer, Graphic, watchUtils, on, dom) {	
+	
+      // Create the Map
+      var map = new Map({
+        basemap: "streets",
+        ground: "world-elevation"
+      });
+
+      // Create the SceneView
+      var view = new SceneView({
+        container: "viewDiv",
+        map: map,
+        camera: {
+          position: [-135, 58, 20914],
+          heading: 20,
+          tilt: 80
+        }
+      });
+      
+      var layerList = new LayerList({
+          view: view
+      });
+      // Adds widget below other elements in the top left corner of the view
+      view.ui.add(layerList, {
+        position: "bottom-right"
+      });
+
+      var borderSymbol = new PointSymbol3D({
+          symbolLayers: [new ObjectSymbol3DLayer({
+            width: 10,  // diameter of the object from east to west in meters
+            height: 200,  // height of the object in meters
+            depth: 10,  // diameter of the object from north to south in meters
+            resource: { primitive: "cylinder" },
+            material: { color: "grey" }
+          })]
+      });
+
+      var borderRenderer = new SimpleRenderer({
+        symbol: borderSymbol
+      });
+      
+      // Create FeatureLayer, set the elevation mode and add to the map
+      var layerBounds = new FeatureLayer({
+        title: "Unit End Marker",
+        url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer/58",
+        definitionExpression: "Start_PHY_IDENT LIKE '10/04%'",
+        elevationInfo: {
+          mode: "relative-to-ground",
+          offset: 0
+        },
+        renderer: borderRenderer
+      });
+      map.add(layerBounds);
+
+      var layer0 = new FeatureLayer({
+		visible: false,
+        title: "Habitat Class",
+        url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer/5",
+        //definitionExpression: "VIDEOTAPE='SE04_06'",
+        elevationInfo: {
+          mode: "relative-to-ground",
+          offset: 0
+        }
+      });
+      map.add(layer0);
+
+      var layer1 = new FeatureLayer({
+        title: "Coastal Class",
+        url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer/6",
+        definitionExpression:  "VIDEOTAPE='SE04_06'",                
+        elevationInfo: {
+          mode: "relative-to-ground",
+          offset: 100
+        }
+      });
+      map.add(layer1);
+
+      var layer2 = new FeatureLayer({
+        title: "Blue Mussels",      
+        url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer/32",
+        definitionExpression: "VIDEOTAPE='SE04_06'",
+        elevationInfo: {
+          mode: "relative-to-ground",
+          offset: 200
+        }
+      });
+      //layer2.fullExtent = view.extent;
+      map.add(layer2);
+
+
+      // Register events to the controls
+      var offsetInput = dom.byId("offsetInput");
+      var queryInput = dom.byId("queryButton");
+      on(offsetInput, "blur", updateElevationOffset);
+      on(offsetInput, "keypress", elevationOffsetKeypress);
+      
+      
+      function updateElevationOffset() {
+        var offset;
+
+        try {
+          offset = parseFloat(offsetInput.value, 10);
+        } catch (e) {
+          return;
+        }
+
+        layer0.elevationInfo = {
+          mode: layer0.elevationInfo.mode,
+          offset: 0
+        };
+        
+        layer1.elevationInfo = {
+          mode: layer0.elevationInfo.mode,
+          offset: offset
+        };
+        
+        layer2.elevationInfo = {
+          mode: layer0.elevationInfo.mode,
+          offset: 2*offset
+        };
+        
+        layerBounds.borderRenderer.borderSymbol.symbolLayers.height = 2*offset;
+
+      }
+
+      function elevationOffsetKeypress(ev) {
+        if (ev.which === 13) {
+          updateElevationOffset();
+        }
+      }
+      
+      // #####-------------------------Tristan's code---------------------------####      
+      // Function that fires every time any layer changes it's visibility state.
+      // Function will iterate through every layer visible in the layerList, will set their offsets incrementaly, effectively maintaining a collapsed stack
+      function fireOnVisibilityChange() {
+          console.log( 'firing' );
+          var iter = 0;
+          var offsetUnit = 50;
+          for (var layer in map.layers) {
+            try{
+                if (layer.visible == true ) {
+                    console.log( layer );
+                    layer.elevationInfo.offset = iter * offsetUnit;
+                    iter++;
+                }
+            }
+            catch(err) {
+                console.log( "Something fucked up when drawing ${layer}" );
+            }
+          }
+      };
+      
+      // Adds a watcher to all layers in the map. Watcher fires whenever the visibility changes, and executes the function fireOnVisibilityChange
+      map.layers.forEach(lyr => lyr.watch( "visible", fireOnVisibilityChange()));
+      
+      on(queryInput, "click", mapExtent);
+      map.layers.on( "changes", function(event) {
+        console.log( 'fire' );
+      } );
+
+      // Function which, given a layer, will return the features of that layer that are contained within the current camera extent.
+      // Function returns a promise, and the resultant featureSet should be accessed with the '.then()' function
+      function findFeaturesInCameraExtent( layer ) {
+        console.log( 'Constructing query...' );
+        var current_view_extent = view.extent; // Grab the visible extent of the map
+        var query = layer.createQuery(); // Function that creates a query that respects the various attributes of the layer in question
+        query.geometry = current_view_extent;
+        query.spatialRelationship = "contains";
+        console.log( 'Applying query to layer...' );
+        return layer.queryFeatures( query ) // Apply the spatial query to the layer, and return a promise of the result
+      }
+      
+
+
+      function testFunction() {
+        console.log( layer0.fields.toJSON );
+      }
+ 
+      function mapExtent() {
+          map.extent = view.extent;
+      }
+ 
+      function queryLayer() {
+          findFeaturesInCameraExtent( layer0 ).then( 
+              // Success
+              function(featureSet) {
+                 var num_feats = featureSet.features.length;
+                 console.log( 'Query executed successfully.' );
+                 console.log( layer0 );
+                 var newLayer = new FeatureLayer({ 
+                     visible: true,
+                     source: featureSet,
+                     geometryType: layer0.geometryType,
+                     fields: layer0.fields,
+                     objectIdField: layer0.objectIdField,
+                     renderer: layer0.renderer
+                 });
+                 console.log( newLayer );
+                 map.layers.add( newLayer );
+                 console.log( 'Done' )
+              },
+              // Failure
+              function(reason) {
+                  console.log(reason);
+              }
+          )
+      }
+      
+    });
+
+
+  </script>
+</head>
+
+<body>
+<div id="viewDiv"></div>
+<div id="elevationDiv">
+  <table>
+    <tr>
+      <td>Layer spacing:</td>
+      <td><input id="offsetInput" type="text" size="5" value="100"></td>
+    </tr>
+  </table>
+</div>
+<div id="queryDiv">
+    <table>
+        <tr>
+            <td><input id='queryButton' type='button' value='Query'></td>
+        </tr>
+    </table>
+</div>
+</body>
+</html>
