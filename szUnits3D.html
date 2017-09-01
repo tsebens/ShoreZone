@@ -57,7 +57,8 @@
       "dojo/dom",
       "dojo/domReady!"
     ], function(Map, SceneView, FeatureLayer, MapImageLayer, SimpleRenderer, Renderer, PointSymbol3D, ObjectSymbol3DLayer, LayerList, Query, urlUtils, GraphicsLayer, Graphic, watchUtils, on, dom) {	
-	
+      var layer_spacing = 20
+    
       // Create the Map
       var map = new Map({
         basemap: "streets",
@@ -97,23 +98,50 @@
         symbol: borderSymbol
       });
       
+      // Function that fires every time any layer changes it's visibility state.
+      // Function will iterate through every layer visible in the layerList, will set their offsets incrementaly, effectively maintaining a collapsed stack
+      function fireOnVisibilityChange() {
+          updateElevationOffset();
+      }
+      
       var szMapService = new MapImageLayer({
         url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer"
       });
+      szMapService.load();
+      var count = 0
+      szMapService.watch("loaded", function(){
+          for (var index in szMapService.allSublayers.items) {
+              layer = szMapService.allSublayers.items[index];
+              parent = extractFirstAncestor( layer );
+              if ((parent == "Biological Attributes" || parent == "Response Attributes" || parent == "Derived ShoreZone Attributes")&&layer.sublayers == null) { // Edit this if statement to alter the prerequisite characteristics for the layers to be permitted.
+                layer_url = layer.url;
+                layer_title = layer.title;
+                featLayer = new FeatureLayer({
+                    visible: false,
+                    url: layer_url,
+                    title: layer_title,
+                    definitionExpression: "VIDEOTAPE='SE04_06'",
+                    elevationInfo: {
+                        mode: "relative-to-ground",
+                        offset: count * layer_spacing
+                    }
+                });
+                count++;
+                map.add( featLayer );
+              }
+          }
+          map.layers.forEach(lyr => lyr.watch( "visible", function(){fireOnVisibilityChange()}));
+      });
       
-      for (var layer in szMapService.allSublayers) {
-        console.log( layer );
-        var parentTitle = layer.parent.title;
-        console.log( parentTitle );
-        if ( parentTitle == "Derived ShoreZone Attributes" || parentTitle == "Response Attributes" || parentTitle == "Biological Attributes" ) {
-            count++;
-        };
-      };
-    
-      
-      
-      console.log( "Layers added:" );
-      console.log( count );
+      // Recursive function that determines the highest ancestor of the given layer
+      function extractFirstAncestor( layer ) {
+          if ( layer.parent.title == szMapService.title ) {
+                return layer.title;
+          }
+          else {
+              return extractFirstAncestor( layer.parent )
+          }
+      }
       
       // Create FeatureLayer, set the elevation mode and add to the map
       var layerBounds = new FeatureLayer({
@@ -127,42 +155,6 @@
         renderer: borderRenderer
       });
       map.add(layerBounds);
-
-      var layer0 = new FeatureLayer({
-		visible: false,
-        title: "Habitat Class",
-        url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer/5",
-        //definitionExpression: "VIDEOTAPE='SE04_06'",
-        elevationInfo: {
-          mode: "relative-to-ground",
-          offset: 0
-        }
-      });
-      map.add(layer0);
-
-      var layer1 = new FeatureLayer({
-        title: "Coastal Class",
-        url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer/6",
-        definitionExpression:  "VIDEOTAPE='SE04_06'",                
-        elevationInfo: {
-          mode: "relative-to-ground",
-          offset: 100
-        }
-      });
-      map.add(layer1);
-
-      var layer2 = new FeatureLayer({
-        title: "Blue Mussels",      
-        url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer/32",
-        definitionExpression: "VIDEOTAPE='SE04_06'",
-        elevationInfo: {
-          mode: "relative-to-ground",
-          offset: 200
-        }
-      });
-      //layer2.fullExtent = view.extent;
-      map.add(layer2);
-
 
       // Register events to the controls
       var offsetInput = dom.byId("offsetInput");
@@ -179,24 +171,17 @@
         } catch (e) {
           return;
         }
-
-        layer0.elevationInfo = {
-          mode: layer0.elevationInfo.mode,
-          offset: 0
-        };
-        
-        layer1.elevationInfo = {
-          mode: layer0.elevationInfo.mode,
-          offset: offset
-        };
-        
-        layer2.elevationInfo = {
-          mode: layer0.elevationInfo.mode,
-          offset: 2*offset
-        };
-        
-        layerBounds.borderRenderer.borderSymbol.symbolLayers.height = 2*offset;
-
+        var i = 0;
+        map.layers.forEach(function(layer) {
+            if (layer.visible == true && layer.id != layerBounds.id) {
+                layer.elevationInfo = {
+                    mode: "relative-to-ground",
+                    offset: i * offset
+                }
+                i++;
+            }
+        });
+        layerBounds.renderer.symbol.symbolLayers.height = offset*i
       }
 
       function elevationOffsetKeypress(ev) {
@@ -205,33 +190,8 @@
         }
       }
       
-      // #####-------------------------Tristan's code---------------------------####      
-      // Function that fires every time any layer changes it's visibility state.
-      // Function will iterate through every layer visible in the layerList, will set their offsets incrementaly, effectively maintaining a collapsed stack
-      function fireOnVisibilityChange() {
-          console.log( 'firing' );
-          var iter = 0;
-          var offsetUnit = 50;
-          for (var layer in map.layers) {
-            try{
-                if (layer.visible == true ) {
-                    console.log( layer );
-                    layer.elevationInfo.offset = iter * offsetUnit;
-                    iter++;
-                }
-            }
-            catch(err) {
-                console.log( "Something fucked up when drawing ${layer}" );
-            }
-          }
-      };
-      
-      // Adds a watcher to all layers in the map. Watcher fires whenever the visibility changes, and executes the function fireOnVisibilityChange
-      map.layers.forEach(lyr => lyr.watch( "visible", fireOnVisibilityChange()));
-      
-      on(queryInput, "click", mapExtent);
       map.layers.on( "changes", function(event) {
-        console.log( 'fire' );
+        console.log( 'map layers change' );
       } );
 
       // Function which, given a layer, will return the features of that layer that are contained within the current camera extent.
@@ -244,12 +204,6 @@
         query.spatialRelationship = "contains";
         console.log( 'Applying query to layer...' );
         return layer.queryFeatures( query ) // Apply the spatial query to the layer, and return a promise of the result
-      }
-      
-
-
-      function testFunction() {
-        console.log( layer0.fields.toJSON );
       }
  
       function mapExtent() {
