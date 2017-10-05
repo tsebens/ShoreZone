@@ -41,14 +41,17 @@
       "esri/Map",
       "esri/views/SceneView",
       "esri/layers/FeatureLayer",
+      "esri/layers/GroupLayer",
       "esri/layers/MapImageLayer",
       "esri/renderers/SimpleRenderer",
       "esri/renderers/Renderer",
       "esri/symbols/PointSymbol3D",
       "esri/symbols/ObjectSymbol3DLayer",
       "esri/widgets/LayerList",
+      "esri/widgets/Legend",
       "esri/tasks/support/Query",
 	  "esri/core/urlUtils",
+      "esri/core/Collection",
       "esri/layers/GraphicsLayer", 
       "esri/Graphic",
       "esri/core/watchUtils",
@@ -56,7 +59,7 @@
       "dojo/on",
       "dojo/dom",
       "dojo/domReady!"
-    ], function(Map, SceneView, FeatureLayer, MapImageLayer, SimpleRenderer, Renderer, PointSymbol3D, ObjectSymbol3DLayer, LayerList, Query, urlUtils, GraphicsLayer, Graphic, watchUtils, on, dom) {	
+    ], function(Map, SceneView, FeatureLayer, GroupLayer, MapImageLayer, SimpleRenderer, Renderer, PointSymbol3D, ObjectSymbol3DLayer, LayerList, Legend, Query, urlUtils, GraphicsLayer, Graphic, watchUtils, Collection, on, dom) {	
       var layer_spacing = 20
     
       // Create the Map
@@ -76,27 +79,61 @@
         }
       });
       
+      function getLayerInfos() {
+          var layerInfos = [];
+          for (var index in map.allLayers.items) {
+              var lyr = map.allLayers.items[index]
+              if (lyr.title == 'World Street Map' || lyr.title == "Terrain3D") {
+                  continue; // We don't want to add these layers to our legend
+              }
+              layerInfos.push({
+                  layer: lyr,
+                  title: lyr.title
+              });
+          }
+          console.log( 'Legend:' );
+          console.log( layerInfos );
+          return layerInfos;
+      }
+      
+      function createLegend() {  
+          var legend = new Legend({
+                view: view,
+                layerInfos: getLayerInfos()  
+              });
+
+          // Add widget to the bottom left corner of the view
+          view.ui.add(legend, "bottom-left");
+          console.log( legend );
+      }
+      
       var layerList = new LayerList({
           view: view
       });
+      
       // Adds widget below other elements in the top left corner of the view
       view.ui.add(layerList, {
         position: "bottom-right"
       });
+      
+      // Creates and returns a simple renderer which produces the end of unit markers at the specified height (h)
+      function createBorderRenderer( h ) {
+          var borderSymbol = new PointSymbol3D({
+              symbolLayers: [new ObjectSymbol3DLayer({
+                width: 10,  // diameter of the object from east to west in meters
+                height: h,  // height of the object in meters
+                depth: 10,  // diameter of the object from north to south in meters
+                resource: { primitive: "cylinder" },
+                material: { color: "grey" }
+              })]
+          });
 
-      var borderSymbol = new PointSymbol3D({
-          symbolLayers: [new ObjectSymbol3DLayer({
-            width: 10,  // diameter of the object from east to west in meters
-            height: 200,  // height of the object in meters
-            depth: 10,  // diameter of the object from north to south in meters
-            resource: { primitive: "cylinder" },
-            material: { color: "grey" }
-          })]
-      });
-
-      var borderRenderer = new SimpleRenderer({
-        symbol: borderSymbol
-      });
+          var borderRenderer = new SimpleRenderer({
+            symbol: borderSymbol
+          });
+          
+          return borderRenderer
+      }
       
       // Function that fires every time any layer changes it's visibility state.
       // Function will iterate through every layer visible in the layerList, will set their offsets incrementaly, effectively maintaining a collapsed stack
@@ -131,7 +168,11 @@
               }
           }
           map.layers.forEach(lyr => lyr.watch( "visible", function(){fireOnVisibilityChange()}));
+          setTimeout(function(){createLegend();},2000);
       });
+      
+      borderRenderer = createBorderRenderer( 200 );
+      
       
       // Recursive function that determines the highest ancestor of the given layer
       function extractFirstAncestor( layer ) {
@@ -181,8 +222,11 @@
                 i++;
             }
         });
-        layerBounds.renderer.symbol.symbolLayers.height = offset*i
-      }
+        layerBounds.renderer.symbol.symbolLayers.height = (i-1) * offset;
+        map.remove( layerBounds );
+        map.add( layerBounds );
+        console.log( layerBounds );
+      };
 
       function elevationOffsetKeypress(ev) {
         if (ev.which === 13) {
@@ -193,6 +237,8 @@
       map.layers.on( "changes", function(event) {
         console.log( 'map layers change' );
       } );
+      
+      
 
       // Function which, given a layer, will return the features of that layer that are contained within the current camera extent.
       // Function returns a promise, and the resultant featureSet should be accessed with the '.then()' function
@@ -251,13 +297,6 @@
       <td><input id="offsetInput" type="text" size="5" value="100"></td>
     </tr>
   </table>
-</div>
-<div id="queryDiv">
-    <table>
-        <tr>
-            <td><input id='queryButton' type='button' value='Query'></td>
-        </tr>
-    </table>
 </div>
 </body>
 </html>
