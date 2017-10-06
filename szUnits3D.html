@@ -60,7 +60,10 @@
       "dojo/dom",
       "dojo/domReady!"
     ], function(Map, SceneView, FeatureLayer, GroupLayer, MapImageLayer, SimpleRenderer, Renderer, PointSymbol3D, ObjectSymbol3DLayer, LayerList, Legend, Query, urlUtils, GraphicsLayer, Graphic, watchUtils, Collection, on, dom) {	
-      var layer_spacing = 20
+      // Some configuration variables
+      var layer_spacing = 20; // The initial spacing of the layers
+      var initial_EM_height = 100; // The initial height of the unit-end markers
+      var layerBounds; // A global handle for the Unit End Markers. Declared here so that it's visible to several functions. Probably should be reworked at some point.
     
       // Create the Map
       var map = new Map({
@@ -79,42 +82,45 @@
         }
       });
       
+      function createLayerList() {
+          // Object that displays all available layers and their visiblity status      
+          var layerList = new LayerList({
+                view: view
+              });
+          // Add the layer list to the view
+          view.ui.add(layerList, {
+              position: 'bottom-right'
+          });
+      }
+      
+      // Function that builds and returns the layerInfos object for the legend widget. Just references the map object, doesn't need any parameters.
       function getLayerInfos() {
           var layerInfos = [];
+          // Here we iterate through all of the layers in the map and add them to the layerInfos object
           for (var index in map.allLayers.items) {
-              var lyr = map.allLayers.items[index]
+              var lyr = map.allLayers.items[index] 
               if (lyr.title == 'World Street Map' || lyr.title == "Terrain3D") {
                   continue; // We don't want to add these layers to our legend
               }
+              // Add the layer to the object.
               layerInfos.push({
                   layer: lyr,
                   title: lyr.title
               });
           }
-          console.log( 'Legend:' );
-          console.log( layerInfos );
           return layerInfos;
       }
       
+      // Function that creates the Legend widget. Legend automatically references all layers in the map, excluding the World Street Map and the Terrain 3D Layers
       function createLegend() {  
           var legend = new Legend({
                 view: view,
-                layerInfos: getLayerInfos()  
+                layerInfos: getLayerInfos()  // This is where the magic happens
               });
 
           // Add widget to the bottom left corner of the view
           view.ui.add(legend, "bottom-left");
-          console.log( legend );
-      }
-      
-      var layerList = new LayerList({
-          view: view
-      });
-      
-      // Adds widget below other elements in the top left corner of the view
-      view.ui.add(layerList, {
-        position: "bottom-right"
-      });
+      }     
       
       // Creates and returns a simple renderer which produces the end of unit markers at the specified height (h)
       function createBorderRenderer( h ) {
@@ -137,7 +143,7 @@
       
       // Function that fires every time any layer changes it's visibility state.
       // Function will iterate through every layer visible in the layerList, will set their offsets incrementaly, effectively maintaining a collapsed stack
-      function fireOnVisibilityChange() {
+      function fireOnVisibilityChange( lyr ) {
           updateElevationOffset();
       }
       
@@ -146,15 +152,26 @@
       });
       szMapService.load();
       var count = 0
-      szMapService.watch("loaded", function(){
+      
+      function setWatchers() {
+          map.layers.forEach(lyr => lyr.watch( "visible", function( lyr ){fireOnVisibilityChange( lyr )}));
+          map.layers.on( "changes", function(event) { // Placeholder watcher. Fires every time a layer is added to or removed from the map.
+            console.log( 'map layers change' );
+          } );
+      }
+      
+      // Loads all of the appropriate layers from szMapService into the map.
+      function loadLayers() {
+          console.log( szMapService );
           for (var index in szMapService.allSublayers.items) {
               layer = szMapService.allSublayers.items[index];
               parent = extractFirstAncestor( layer );
-              if ((parent == "Biological Attributes" || parent == "Response Attributes" || parent == "Derived ShoreZone Attributes")&&layer.sublayers == null) { // Edit this if statement to alter the prerequisite characteristics for the layers to be permitted.
+              // Edit this if statement to alter the prerequisite characteristics for the layers to be permitted.
+              if ((parent == "Biological Attributes" || parent == "Response Attributes" || parent == "Derived ShoreZone Attributes")&&layer.sublayers == null) { 
                 layer_url = layer.url;
                 layer_title = layer.title;
                 featLayer = new FeatureLayer({
-                    visible: false,
+                    visible: false, // Every layer starts out hidden.
                     url: layer_url,
                     title: layer_title,
                     definitionExpression: "VIDEOTAPE='SE04_06'",
@@ -163,17 +180,12 @@
                         offset: count * layer_spacing
                     }
                 });
-                count++;
                 map.add( featLayer );
+                count++;
               }
           }
-          map.layers.forEach(lyr => lyr.watch( "visible", function(){fireOnVisibilityChange()}));
-          setTimeout(function(){createLegend();},2000);
-      });
-      
-      borderRenderer = createBorderRenderer( 200 );
-      
-      
+      }
+
       // Recursive function that determines the highest ancestor of the given layer
       function extractFirstAncestor( layer ) {
           if ( layer.parent.title == szMapService.title ) {
@@ -184,18 +196,21 @@
           }
       }
       
-      // Create FeatureLayer, set the elevation mode and add to the map
-      var layerBounds = new FeatureLayer({
-        title: "Unit End Marker",
-        url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer/58",
-        definitionExpression: "Start_PHY_IDENT LIKE '10/04%'",
-        elevationInfo: {
-          mode: "relative-to-ground",
-          offset: 0
-        },
-        renderer: borderRenderer
-      });
-      map.add(layerBounds);
+      
+      // Create Unit End Markers as a FeatureLayer, set the elevation mode and add to the map
+      function buildUEM( height ) {
+          var layerBounds = new FeatureLayer({
+            title: "Unit End Marker",
+            url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer/58",
+            definitionExpression: "Start_PHY_IDENT LIKE '10/04%'",
+            elevationInfo: {
+              mode: "relative-to-ground",
+              offset: 0
+            },
+            renderer: createBorderRenderer( height )
+          });
+          return layerBounds;
+      }
 
       // Register events to the controls
       var offsetInput = dom.byId("offsetInput");
@@ -210,11 +225,11 @@
         try {
           offset = parseFloat(offsetInput.value, 10);
         } catch (e) {
-          return;
+          return e;
         }
         var i = 0;
         map.layers.forEach(function(layer) {
-            if (layer.visible == true && layer.id != layerBounds.id) {
+            if (layer.visible == true && layer.id != layerBounds.id) { // Cycle through every layer except for the layer bounds layer.
                 layer.elevationInfo = {
                     mode: "relative-to-ground",
                     offset: i * offset
@@ -222,10 +237,10 @@
                 i++;
             }
         });
-        layerBounds.renderer.symbol.symbolLayers.height = (i-1) * offset;
+        // Update Unit End Markers height
         map.remove( layerBounds );
+        layerBounds = buildUEM( (i-1) * offset )
         map.add( layerBounds );
-        console.log( layerBounds );
       };
 
       function elevationOffsetKeypress(ev) {
@@ -234,35 +249,22 @@
         }
       }
       
-      map.layers.on( "changes", function(event) {
-        console.log( 'map layers change' );
-      } );
-      
-      
-
       // Function which, given a layer, will return the features of that layer that are contained within the current camera extent.
       // Function returns a promise, and the resultant featureSet should be accessed with the '.then()' function
       function findFeaturesInCameraExtent( layer ) {
-        console.log( 'Constructing query...' );
         var current_view_extent = view.extent; // Grab the visible extent of the map
         var query = layer.createQuery(); // Function that creates a query that respects the various attributes of the layer in question
         query.geometry = current_view_extent;
         query.spatialRelationship = "contains";
-        console.log( 'Applying query to layer...' );
         return layer.queryFeatures( query ) // Apply the spatial query to the layer, and return a promise of the result
       }
- 
-      function mapExtent() {
-          map.extent = view.extent;
-      }
- 
-      function queryLayer() {
-          findFeaturesInCameraExtent( layer0 ).then( 
+
+      // Template for querying a layer to determine which of its' features are within the camera extent. Returns a collection of graphics. Not currently used.
+      function queryLayer( layer ) {
+          findFeaturesInCameraExtent( layer ).then( 
               // Success
               function(featureSet) {
                  var num_feats = featureSet.features.length;
-                 console.log( 'Query executed successfully.' );
-                 console.log( layer0 );
                  var newLayer = new FeatureLayer({ 
                      visible: true,
                      source: featureSet,
@@ -273,7 +275,6 @@
                  });
                  console.log( newLayer );
                  map.layers.add( newLayer );
-                 console.log( 'Done' )
               },
               // Failure
               function(reason) {
@@ -282,7 +283,29 @@
           )
       }
       
+      // Function that performs all of the necessary one-time setup when the application is first loaded.
+      // Function is not executed until the ShoreZone map service is fully loaded.
+      function init(){
+          loadLayers(); // Load the layers into the map.
+          layerBounds = buildUEM( initial_EM_height );
+          map.add( layerBounds );
+          setWatchers(); // Add watchers to all of the layers. Each watcher fires when it's layer's visibility changes. Calls fireOnVisibilityChange()
+          createLegend();
+          createLayerList();
+      };
+      
+
+      
+      // Function that fires once the szMapService has completely loaded. Since we have to wait for that to initialize basically every part of the web app, we just wait and then call the init() function, which intitializes all of the layers and widgets that we need.
+      szMapService.watch("loaded", function() {
+          init();
+      });
+    
     });
+
+      
+
+
 
 
   </script>
