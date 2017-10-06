@@ -64,6 +64,7 @@
       var layer_spacing = 20; // The initial spacing of the layers
       var initial_EM_height = 100; // The initial height of the unit-end markers
       var layerBounds; // A global handle for the Unit End Markers. Declared here so that it's visible to several functions. Probably should be reworked at some point.
+      var dynamicallyUpdateUEM = true;
     
       // Create the Map
       var map = new Map({
@@ -238,9 +239,9 @@
             }
         });
         // Update Unit End Markers height
-        map.remove( layerBounds );
-        layerBounds = buildUEM( (i-1) * offset )
-        map.add( layerBounds );
+        if( dynamicallyUpdateUEM == true ) {
+            layerBounds.renderer = createBorderRenderer( (i-1)*offset );
+        }
       };
 
       function elevationOffsetKeypress(ev) {
@@ -293,8 +294,6 @@
           createLegend();
           createLayerList();
       };
-      
-
       
       // Function that fires once the szMapService has completely loaded. Since we have to wait for that to initialize basically every part of the web app, we just wait and then call the init() function, which intitializes all of the layers and widgets that we need.
       szMapService.watch("loaded", function() {
