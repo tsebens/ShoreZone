@@ -55,7 +55,6 @@
       "esri/layers/GraphicsLayer", 
       "esri/Graphic",
       "esri/core/watchUtils",
-        
       "dojo/on",
       "dojo/dom",
       "dojo/domReady!"
@@ -142,6 +141,36 @@
           return borderRenderer
       }
       
+      // Returns a layer promise which has all of the important characteristics of the passed layer, and which carries a reference to the original layer in the property 'subordinate'
+      function createWrapperLayer( featLayer ){
+         // Grab the features in the featLayer which are visible to the initial extent of the view. Assign those as the source.
+         // Wait for the results of the query to return, then pass it into the next function to be used as the resultant layer's source.
+         // Here we read out all of the important information from the original layer
+         var subTitle = featLayer.title;
+         var subID = featLayer.id;
+         var subFields = featLayer.fields;
+         var subObjID = featLayer.objectIdField;
+         var subSpRef = featLayer.spatialReference;
+         var subGeoType = featLayer.geometryType;
+         var subRender = featLayer.renderer;
+         // Now we create the actual layer
+         visiLayer = new FeatureLayer({
+           title: subTitle,
+           id: subID,
+           objectIdField: subObjID,
+           source: findFeaturesInCameraExtent( featLayer ), // In order to execute this function, featLayers must already be loaded.
+           fields: subFields,
+           spatialReference: subSpRef,
+           geometryType: subGeoType,
+           renderer: subRender
+         });
+         visiLayer.subordinate = featLayer;
+         // And return it
+         console.log( 'vLayer' );
+         console.log( visiLayer );
+         return visiLayer;
+      }
+      
       // Function that fires every time any layer changes it's visibility state.
       // Function will iterate through every layer visible in the layerList, will set their offsets incrementaly, effectively maintaining a collapsed stack
       function fireOnVisibilityChange( lyr ) {
@@ -162,6 +191,9 @@
       }
       
       // Loads all of the appropriate layers from szMapService into the map.
+      // Add functionality: Wrap all incoming FeatureLayers in GraphicsLayers and clone all of the personal info from the FeatureLayer.
+      // This way, we can query the FeatureLayer, and use the GraphicsLayer to display the results of said query.
+      // Don't add the FeatureLayer to the map, only add the GraphicsLayer
       function loadLayers() {
           console.log( szMapService );
           for (var index in szMapService.allSublayers.items) {
@@ -169,20 +201,33 @@
               parent = extractFirstAncestor( layer );
               // Edit this if statement to alter the prerequisite characteristics for the layers to be permitted.
               if ((parent == "Biological Attributes" || parent == "Response Attributes" || parent == "Derived ShoreZone Attributes")&&layer.sublayers == null) { 
+                // Create the feature layer from the REST service
                 layer_url = layer.url;
                 layer_title = layer.title;
                 featLayer = new FeatureLayer({
                     visible: false, // Every layer starts out hidden.
                     url: layer_url,
                     title: layer_title,
-                    definitionExpression: "VIDEOTAPE='SE04_06'",
+                    //definitionExpression: "VIDEOTAPE='SE04_06'",
                     elevationInfo: {
                         mode: "relative-to-ground",
                         offset: count * layer_spacing
                     }
                 });
-                map.add( featLayer );
-                count++;
+                console.log( 'then' );
+                console.log( featLayer );
+                // Now the feature layer created from the REST service is loaded, and is available to us as featLayer. Now create the layer that will wrap around it.
+                visiLayer = createWrapperLayer( featLayer );
+                // visiLayer is a promise for a FeatureLayer that wraps around the FeatureLayer created from the REST service
+                // We need to wait until visiLayer has loaded, and then add it to the map
+                console.log( 'loading' );
+                console.log( visiLayer );
+                visiLayer.load()
+                visiLayer.then( function(visiLayer) {
+                    console.log( 'vLayer' );
+                    console.log( visiLayer );
+                }); 
+                
               }
           }
       }
@@ -257,7 +302,8 @@
         var query = layer.createQuery(); // Function that creates a query that respects the various attributes of the layer in question
         query.geometry = current_view_extent;
         query.spatialRelationship = "contains";
-        return layer.queryFeatures( query ) // Apply the spatial query to the layer, and return a promise of the result
+        var results = layer.queryFeatures( query ) // Apply the spatial query to the layer, and return a promise of the result
+        return results;
       }
 
       // Template for querying a layer to determine which of its' features are within the camera extent. Returns a collection of graphics. Not currently used.
@@ -269,10 +315,10 @@
                  var newLayer = new FeatureLayer({ 
                      visible: true,
                      source: featureSet,
-                     geometryType: layer0.geometryType,
-                     fields: layer0.fields,
-                     objectIdField: layer0.objectIdField,
-                     renderer: layer0.renderer
+                     geometryType: layer.geometryType,
+                     fields: layer.fields,
+                     objectIdField: layer.objectIdField,
+                     renderer: layer.renderer
                  });
                  console.log( newLayer );
                  map.layers.add( newLayer );
@@ -293,6 +339,7 @@
           setWatchers(); // Add watchers to all of the layers. Each watcher fires when it's layer's visibility changes. Calls fireOnVisibilityChange()
           createLegend();
           createLayerList();
+          setTimeout(function(){ console.log( map ); }, 10000);
       };
       
       // Function that fires once the szMapService has completely loaded. Since we have to wait for that to initialize basically every part of the web app, we just wait and then call the init() function, which intitializes all of the layers and widgets that we need.
