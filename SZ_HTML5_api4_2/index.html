@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html >
+<head>
+
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no">
+
+  <title>ShoreZone</title>
+
+  <!--  JQuery library  -->
+  <script type="text/javascript" src="jquery.js"></script>
+
+  <!--  ArcGIS JavaScript 4.3 styles  -->
+  <link rel="stylesheet" href="https://js.arcgis.com/4.3/dijit/themes/claro/claro.css">
+  <link rel="stylesheet" href="https://js.arcgis.com/4.3/dojox/layout/resources/ExpandoPane.css"/>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.3/esri/css/main.css">
+
+  <!--  dojoConfig settings: includes def of "noaa" namespace to access classes in the "modules" subfolder  -->
+  <script type="text/javascript">
+    // helpful for understanding dojoConfig.packages vs. dojoConfig.paths: http://www.sitepen.com/blog/2013/06/20/dojo-faq-what-is-the-difference-packages-vs-paths-vs-aliases
+    var dojoConfig = {
+      parseOnLoad: false,
+      paths: {
+        //if you want to host on your own server, download and put in folders then use path like:
+        noaa: location.pathname.replace(/\/[^/]+$/, '') + '/modules',
+      }
+    };
+  </script>
+
+  <!--  ArcGIS JavaScript 4.3 API  -->
+  <script src="https://js.arcgis.com/4.3/"></script>
+
+  <!-- **** SZ JavaScript code **** -->
+  <link rel="stylesheet" href="SZ.css">
+  <script src="JS/GlobalVars.js" ></script>
+  <script src="JS/OfflineAppLink.js"></script>
+  <script src="JS/youtube.js"></script>
+  <script src="JS/MapStuff.js"></script>
+
+  <!--  Code supporting Dojo layout  -->
+  <script type="text/javascript">
+    require([
+      "dojo/parser",
+      "dijit/registry",
+      "dijit/layout/ContentPane",
+      "dijit/layout/BorderContainer",
+      "dijit/layout/TabContainer",
+      "dojox/layout/ExpandoPane",
+      "dojo/domReady!"
+    ], function(parser, registry) {
+
+      parser.parse();
+
+      var stateNavigator = registry.byId("stateNavigator");
+      var szTab = registry.byId("szTab");
+      var FaSsMsg = "Sorry, @ has not been implemented yet on this site.  If you would like to open @ on the older Flex site, click 'OK'.";
+
+      var tableQueryExpando = registry.byId("tableQueryExpando");
+      var queryDiv = registry.byId("queryDiv");
+      var flexSiteURL = "https://alaskafisheries.noaa.gov/mapping/szflex/index.html?L=B";
+
+      stateNavigator.watch("selectedChildWidget", function(name, oval, nval){
+        changeState(nval.id, oval.id);
+      });
+
+      // Switch between ShoreZone/FishAtlas/ShoreStation states
+      function changeState(tabID, oldTabID) {
+        //alert("selected child changed from " + oldTabID + " to " + tabID);
+        if (tabID == "szTab") {
+          setExpandoState(tableQueryExpando, false);
+
+        }
+        else if (tabID == "faTab") {
+          if (confirm(FaSsMsg.replace(/@/g,"Fish Atlas")))
+            window.open(flexSiteURL + "@T=FA");
+          //stateNavigator.selectChild(szTab);
+          //setExpandoState(tableQueryExpando, true);
+        }
+        else if (tabID == "ssTab") {
+          if (confirm(FaSsMsg.replace(/@/g,"Shore Station")))
+            window.open(flexSiteURL + "@T=SS");
+          //setExpandoState(tableQueryExpando, true);
+        }
+      }
+
+      function setExpandoState(expandoPane, expanded) {
+        if (expandoPane._showing && expanded)
+          return;
+        if (!expandoPane._showing && !expanded)
+          return;
+        expandoPane.toggle();
+      }
+
+
+
+    });
+  </script>
+
+</head>
+
+
+<body class="claro">
+
+<div id="mainDiv" data-dojo-type="dijit.layout.BorderContainer" data-dojo-props="gutters:true, liveSplitters:true" >
+
+  <div id="bannerDiv" data-dojo-type="dijit.layout.ContentPane" data-dojo-props="region:'top'">
+        <div id="stateNavigator" data-dojo-type="dijit.layout.TabContainer" onclick="" >
+          <div id="szTab" data-dojo-type="dijit.layout.ContentPane" title="ShoreZone" selected="true"></div>
+          <div id="faTab" data-dojo-type="dijit.layout.ContentPane" title="FishAtlas" disabled="false"></div>
+          <div id="ssTab" data-dojo-type="dijit.layout.ContentPane" title="ShoreStation" disabled="false"><div>Shore Station</div></div>
+        </div>
+  </div>
+
+  <div id="mapAndImageryBC" data-dojo-type="dijit.layout.BorderContainer" data-dojo-props="design:'sidebar', gutters:true, liveSplitters:true, region:'center'" >
+    <div id="mapWToolsBC" data-dojo-type="dijit.layout.BorderContainer" data-dojo-props="design:'sidebar', gutters:true, liveSplitters:true, region:'center'" >
+      <div id="mapDiv" data-dojo-type="dijit.layout.ContentPane" data-dojo-props="splitter:true, region:'center'">
+        <span id="coordinates" style="position:absolute; left:15px; bottom:5px; color:#000; z-index:50;">Coordinates go here</span>
+      </div>
+      <div id="mapToolsExpando" data-dojo-type="dojox.layout.ExpandoPane" data-dojo-props="title: '', maxWidth:225, splitter:true, region:'right'" >
+        <div id="mapToolsAccordion" data-dojo-type="dijit/layout/AccordionContainer" >
+          <div id="layerListPane" data-dojo-type="dijit/layout/TabContainer" onclick="" title="Layers/Legend" selected="true">
+            <div id="layerListTab" data-dojo-type="dijit.layout.ContentPane" title="Layer List" selected="true">
+              <div id="layerListDom"></div>
+            </div>
+            <div id="legendTab" data-dojo-type="dijit.layout.ContentPane" title="Legend" disabled="false">
+              <div id="legendDom"></div>
+            </div>
+          </div>
+          <div id="locationsPane" data-dojo-type="dijit/layout/ContentPane" title="Locations">
+            <H4 style="color: red">[NONFUNCTIONAL -- PLACEHOLDER]</H4>
+            <img src="assets/images/locationsPaneSnip.PNG" >
+          </div>
+          <div id="downloadPane" data-dojo-type="dijit/layout/ContentPane" title="Download">
+            <br><button id="offlineAppButton" onclick="openOfflineApp()">Open offline app with data in current extent</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="mediaBC" data-dojo-type="dijit.layout.BorderContainer" data-dojo-props="gutters:true, liveSplitters:true, splitter:true, region:'right'" >
+      <div id="videoDiv" class="mediaPanelDiv" data-dojo-type="dijit.layout.BorderContainer" data-dojo-props="splitter:true, region:'center', gutters:false" >
+          <div id="panelDisabled_video" style="position:absolute; width:100%; height:100%; background-color: #d4d4d4; visibility: hidden"><label style='color:red; position: absolute; top:50%; left: 30%'>Zoom in further to see video</label></div>
+          <div id="panelEnabled_video" style="visibility: visible">
+
+            <div id="videoHeaderDiv" class="mediaHeaderDiv" data-dojo-type="dijit.layout.ContentPane" data-dojo-props="region:'top'" >Video header</div>
+            <div id="videoContainer" class="mediaContainer" data-dojo-type="dijit.layout.ContentPane" data-dojo-props="region:'center'" >
+              <div id="videoNoImageMessage" class="mediaMessageDiv"><b>No video</b></div>
+              <div id='video_youtube' class="image_youtube"></div>
+            </div>
+            <div id="videoToolsDiv" class="mediaToolsContainer" data-dojo-type="dijit.layout.ContentPane" data-dojo-props="region:'bottom'" ></div>
+          </div>
+
+      </div>
+      <div id="photoDiv" class="mediaPanelDiv" data-dojo-type="dijit.layout.BorderContainer" data-dojo-props="splitter:true, region:'bottom', gutters:false" >
+        <div id="panelDisabled_photo" style="position:absolute; width:100%; height:100%; background-color: #d4d4d4; visibility: hidden"><label style='color:red; position: absolute; top:50%; left: 30%'>Zoom in further to see photos</label></div>
+        <div id="panelEnabled_photo" style="visibility: visible">
+          <div id="photoHeaderDiv" class="mediaHeaderDiv" data-dojo-type="dijit.layout.ContentPane" data-dojo-props="region:'top'" >Photo header</div>
+          <div id="photoContainer" class="mediaContainer" data-dojo-type="dijit.layout.ContentPane" data-dojo-props="region:'center'" >
+            <div id="photoNoImageMessage" class="mediaMessageDiv"><b>No image</b></div>
+            <img id="photoImage" class="image_youtube" src="">
+          </div>
+          <div id="photoToolsDiv" class="mediaToolsContainer" data-dojo-type="dijit.layout.ContentPane" data-dojo-props="region:'bottom'" ></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tableQueryExpando" data-dojo-type="dojox.layout.ExpandoPane" data-dojo-props="design:'sidebar', title: '', maxWidth:225, splitter:true, region:'bottom', startExpanded:false" >
+    <div id="tableQueryBC" data-dojo-type="dijit.layout.BorderContainer" >
+      <div id="tableDiv" data-dojo-type="dijit.layout.ContentPane" data-dojo-props="splitter:true, region:'center'">
+        <b>Tables:</b><br>
+        SZ: Units<br>
+        FA: Regions/Locales/Sites/Temperature/Eelgrass<br>
+        FA: Regions/Locales/Stations<br>
+      </div>
+      <div id="queryDiv" data-dojo-type="dijit.layout.ContentPane" data-dojo-props="splitter:true, region:'right'">
+        <B>Query page:</B><br>
+        SZ: query on units<BR>
+        FA: query on fish species & habitat<BR>
+        SS:  [PAGE IS HIDDEN (Table panel expands to fill space)]
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
