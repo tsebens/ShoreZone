@@ -249,6 +249,14 @@
             });
     }
   
+	// Function to streamline our checking 
+	function isDesiredLayer( layer ) {
+		parent = extractFirstAncestor( layer );
+		if ((parent == "Biological Attributes" || parent == "Response Attributes" || parent == "Derived ShoreZone Attributes")&&layer.sublayers==null){
+			return true;
+		}
+		return false;
+	}
     // Loads all of the appropriate layers from szMapService into the map.
     // Add functionality: Wrap all incoming FeatureLayers in GraphicsLayers and clone all of the personal info from the FeatureLayer.
     // This way, we can query the FeatureLayer, and use the GraphicsLayer to display the results of said query.
@@ -258,9 +266,7 @@
         var count = 0
         for (var index in szMapService.allSublayers.items) {
             layer = szMapService.allSublayers.items[index];
-            parent = extractFirstAncestor( layer );
-            // Edit this if statement to alter the prerequisite characteristics for the layers to be permitted.
-            if ((parent == "Biological Attributes" || parent == "Response Attributes" || parent == "Derived ShoreZone Attributes")&&layer.sublayers == null&&layer.id==5) { 
+            if ( isDesiredLayer( layer )==true ) { 
                 // Create the feature layer from the REST service
                 layer_url = layer.url;
                 layer_title = layer.title;
@@ -268,18 +274,22 @@
                     visible: false, // Every layer starts out hidden.
                     url: layer_url,
                     title: layer_title,
-                    //definitionExpression: "VIDEOTAPE='SE04_06'",
+                    definitionExpression: "VIDEOTAPE='SE04_06'", // This expression limits the features drawn to approximately Berner's bay
                     elevationInfo: {
                           mode: "relative-to-ground",
                           offset: count * layer_spacing
                     }
                 });
+				
+				/* This block of code invokes the whole 'wrapper layer' side of things. No need for this for the demo.
                 featLayer.then( function(featLayer) {
                     // Now the feature layer created from the REST service is loaded, and is available to us as featLayer. Now create the   layer that will wrap around it.
                     visiLayer = createWrapperLayer( featLayer );
                     // createWrapperLayer will add the layer to the map, so we don't have to do that here.
                 });
                 featLayer.load();
+				*/
+				map.add( featLayer )
                 count++;
             }
         }
@@ -312,12 +322,14 @@
 
     // Register events to the controls
     var offsetInput = dom.byId("offsetInput");
-    var queryInput = dom.byId("queryButton");
+    
     on(offsetInput, "blur", updateElevationOffset);
     on(offsetInput, "keypress", elevationOffsetKeypress);
-    queryInput.onclick = function() {
+	/* Implements a query button, useful for debugging the query infrastructure.
+    var queryInput = dom.byId("queryButton");
+	queryInput.onclick = function() {
         updateVisibleFeatures();
-    };
+    }; */
   
   
     function updateElevationOffset() {
@@ -357,6 +369,7 @@
                 visibleFeats.then( 
                     function( visibleFeats ) {
                         layer.source = visibleFeats.features;
+						layer.refresh()
                         console.log( layer );
                     },
                     function( reason ) {
@@ -452,9 +465,9 @@
             <td>Layer spacing:</td>
             <td><input id="offsetInput" type="text" size="5" value="100"></td>
         </tr>
-        <tr>
+        <!--<tr> Adds a button to the UI, which can be linked to the query testing functionality a few lines above.
             <td><input type="button" id="queryButton" name="queryButton" value="Query"</td>
-        </tr>
+        </tr>-->
     </table>
 </div>
 </body>

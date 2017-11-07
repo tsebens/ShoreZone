@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project version="4">
-  <component name="JavaScriptLibraryMappings">
-    <excludedPredefinedLibrary name="SZ_HTML5_api4_2/modules/widgets/HelloWorld/node_modules" />
-    <excludedPredefinedLibrary name="SZ_HTML5_api4_2/modules/widgets/Recenter/node_modules" />
-  </component>
-</project>
