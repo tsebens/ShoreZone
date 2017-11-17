@@ -5,451 +5,428 @@
 <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Use elevationInfo in 3D visualization - 4.3</title>
 <style>
-    html,
-    body,
-    #viewDiv {
-        padding: 0;
-        margin: 0;
-        height: 100%;
-        width: 100%;
-    }
+	html,
+	body,
+	#viewDiv {
+		padding: 0;
+		margin: 0;
+		height: 100%;
+		width: 100%;
+	}
 
-    #elevationDiv {
-        position: absolute;
-        top: 12px;
-        right: 12px;
-        padding: 12px;d
-        background-color: rgba(0, 0, 0, 0.5);
-        color: white;
-    }
-    
-    #queryDiv {
-        position: absolute;
-        bottom: 12px;
-        left: 12px;
-        padding: 12px;
-        background-color: rgba(0, 0, 0, 0.5);
-        color: white;
-    }
+	#elevationDiv {
+		position: absolute;
+		top: 12px;
+		right: 12px;
+		padding: 12px;d
+		background-color: rgba(0, 0, 0, 0.5);
+		color: white;
+	}
+	
+	#queryDiv {
+		position: absolute;
+		bottom: 12px;
+		left: 12px;
+		padding: 12px;
+		background-color: rgba(0, 0, 0, 0.5);
+		color: white;
+	}
 </style>
 
 <link rel="stylesheet" href="https://js.arcgis.com/4.3/esri/css/main.css">
 <script src="https://js.arcgis.com/4.3/"></script>
 
 <script>
-    require([
-        "esri/Map",
-        "esri/views/SceneView",
-        "esri/layers/FeatureLayer",
-        "esri/layers/GroupLayer",
-        "esri/layers/MapImageLayer",
-        "esri/renderers/SimpleRenderer",
-        "esri/renderers/Renderer",
-        "esri/geometry/Point",
-        "esri/geometry/Polygon",
-        "esri/symbols/PointSymbol3D",
-        "esri/symbols/ObjectSymbol3DLayer",
-        "esri/widgets/LayerList",
-        "esri/widgets/Legend",
-        "esri/tasks/support/Query",
-        "esri/tasks/QueryTask",
-        "esri/core/urlUtils",
-        "esri/core/Collection",
-        "esri/layers/GraphicsLayer", 
-        "esri/Graphic",
-        "esri/core/watchUtils",
-        "dojo/on",
-        "dojo/dom",
-        "dojo/domReady!"
-    ], function(Map, SceneView, FeatureLayer, GroupLayer, MapImageLayer, SimpleRenderer, Renderer, Point, Polygon, PointSymbol3D, ObjectSymbol3DLayer, LayerList, Legend, Query, QueryTask, urlUtils, GraphicsLayer, Graphic, watchUtils, Collection, on, dom) {	
-    // Some configuration variables
-    var layer_spacing = 20; // The initial spacing of the layers
-    var initial_EM_height = 100; // The initial height of the unit-end markers
-    var layerBounds; // A global handle for the Unit End Markers. Declared here so that it's visible to several functions. Probably should be reworked at some point.
-    var dynamicallyUpdateUEM = true;
+	require([
+		"esri/Map",
+		"esri/views/SceneView",
+		"esri/layers/FeatureLayer",
+		"esri/layers/GroupLayer",
+		"esri/layers/MapImageLayer",
+		"esri/renderers/SimpleRenderer",
+		"esri/renderers/Renderer",
+		"esri/geometry/Point",
+		"esri/geometry/Polygon",
+		"esri/symbols/PointSymbol3D",
+		"esri/symbols/ObjectSymbol3DLayer",
+		"esri/widgets/LayerList",
+		"esri/widgets/Legend",
+		"esri/tasks/support/Query",
+		"esri/tasks/QueryTask",
+		"esri/core/urlUtils",
+		"esri/core/Collection",
+		"esri/layers/GraphicsLayer", 
+		"esri/Graphic",
+		"esri/core/watchUtils",
+		"dojo/on",
+		"dojo/dom",
+		"dojo/domReady!"
+	], function(Map, SceneView, FeatureLayer, GroupLayer, MapImageLayer, SimpleRenderer, Renderer, Point, Polygon, PointSymbol3D, ObjectSymbol3DLayer, LayerList, Legend, Query, QueryTask, urlUtils, GraphicsLayer, Graphic, watchUtils, Collection, on, dom) {	
+	// Some configuration variables
+	var layer_spacing = 20; // The initial spacing of the layers
+	var initial_EM_height = 100; // The initial height of the unit-end markers
+	var dynamicallyUpdateUEM = true;
+	var UEM_ID = null
 
-    // Create the Map
-    var map = new Map({
-        basemap: "streets",
-        ground: "world-elevation"
-    });
-    
-    // Create the SceneView
-    var view = new SceneView({
-        container: "viewDiv",
-        map: map,
-        camera: {
-            position: [-135, 58, 20914],
-            heading: 20,
-            tilt: 80
-        }
-    });
-    view.camera.hasChanged = false; // Property we will use to determine if the camera has been changed or not.
-  
-    function createLayerList() {
-        // Object that displays all available layers and their visiblity status      
-        var layerList = new LayerList({
-            view: view
-        });
-        // Add the layer list to the view
-        view.ui.add(layerList, {
-            position: 'bottom-right'
-        });
-    }
-  
-    // Function that builds and returns the layerInfos object for the legend widget. Just references the map object, doesn't need any parameters.
-    function getLayerInfos() {
-        var layerInfos = [];
-        // Here we iterate through all of the layers in the map and add them to the layerInfos object
-        for (var index in map.allLayers.items) {
-            var lyr = map.allLayers.items[index] 
-            if (lyr.title == 'World Street Map' || lyr.title == "Terrain3D") {
-                continue; // We don't want to add these layers to our legend
-            }
-            // Add the layer to the object.
-            layerInfos.push({
-                layer: lyr,
-                title: lyr.title
-            });
-        }
-        return layerInfos;
-    }
-  
-    // Function that creates the Legend widget. Legend automatically references all layers in the map, excluding the World Street Map and the Terrain 3D Layers
-    function createLegend() {  
-        var legend = new Legend({
-            view: view,
-            layerInfos: getLayerInfos()  // This is where the magic happens
-        });
+	// Define the map service that all of the data is loaded from
+	var szMapService = new MapImageLayer({
+		url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZone_am/MapServer"
+	});
+	
+	// Create the Map
+	var map = new Map({
+		basemap: "streets",
+		ground: "world-elevation"
+	});
+	// A list that we will use to keep track of the order that the layers are added in. Important for stacking order
+	map.layer_order = [] 
+	
+	// Create the SceneView
+	var view = new SceneView({
+		container: "viewDiv",
+		map: map,
+		camera: {
+			position: [-135, 58, 20914],
+			heading: 20,
+			tilt: 80
+		}
+	});
 
-        // Add widget to the bottom left corner of the view
-        view.ui.add(legend, "bottom-left");
-    }     
+	function createLayerList() {
+		// Object that displays all available layers and their visiblity status	  
+		var layerList = new LayerList({
+			view: view
+		});
+		// Add the layer list to the view
+		view.ui.add(layerList, {
+			position: 'bottom-right'
+		});
+	}
   
-    // Creates and returns a simple renderer which produces the end of unit markers at the specified height (h)
-    function createBorderRenderer( h ) {
-        var borderSymbol = new PointSymbol3D({
-            symbolLayers: [new ObjectSymbol3DLayer({
-                width: 10,  // diameter of the object from east to west in meters
-                height: h,  // height of the object in meters
-                depth: 10,  // diameter of the object from north to south in meters
-                resource: { primitive: "cylinder" },
-                material: { color: "grey" }
-            })]
-        });
+	// Function that builds and returns the layerInfos object for the legend widget. Just references the map object, doesn't need any parameters.
+	function getLayerInfos() {
+		var layerInfos = [];
+		// Here we iterate through all of the layers in the map and add them to the layerInfos object
+		for (var index in map.allLayers.items) {
+			var lyr = map.allLayers.items[index] 
+			if (lyr.title == 'World Street Map' || lyr.title == "Terrain3D") {
+				continue; // We don't want to add these layers to our legend
+			}
+			// Add the layer to the object.
+			layerInfos.push({
+				layer: lyr,
+				title: lyr.title
+			});
+		}
+		return layerInfos;
+	}
+  
+	// Function that creates the Legend widget. Legend automatically references all layers in the map, excluding the World Street Map and the Terrain 3D Layers
+	function createLegend() {  
+		var legend = new Legend({
+			view: view,
+			layerInfos: getLayerInfos()  // This is where the magic happens
+		});
 
-        var borderRenderer = new SimpleRenderer({
-            symbol: borderSymbol
-        });
-      
-        return borderRenderer
-    }
+		// Add widget to the bottom left corner of the view
+		view.ui.add(legend, "bottom-left");
+	}	 
   
-    // Returns a layer promise which has all of the important characteristics of the passed layer, and which carries a reference to the original layer in the property 'subordinate'
-    function createWrapperLayer( featLayer ){
-        console.log( 'Creating wrapper layer for ', featLayer.title ); 
-        // Grab the features in the featLayer which are visible to the initial extent of the view. Assign those as the source.
-        // Wait for the results of the query to return, then pass it into the next function to be used as the resultant layer's source.
-        // Here we read out all of the important information from the original layer
-        var subTitle = featLayer.title;
-        var subID = featLayer.id;
-        var subFields = featLayer.fields;
-        var subObjID = featLayer.objectIdField;
-        var subSpRef = featLayer.spatialReference;
-        var subGeoType = featLayer.geometryType;
-        var subRender = featLayer.renderer;
-        // Here we query the feature layer for all visible features.
-        var visibleFeats = findFeaturesInCameraExtent( featLayer );
-        // We have to wait for the query to finish execution to create the wrapper layer
-        visibleFeats.then( 
-            function(visibleFeats) {
-                // Now we create the actual layer
-                visiLayer = new FeatureLayer({
-                    title: subTitle,
-                    id: subID,
-                    objectIdField: subObjID,
-                    source: findFeaturesInCameraExtent( featLayer ), // In order to execute this function, featLayers must already be loaded.
-                    fields: subFields,
-                    visible: true,
-                    spatialReference: subSpRef,
-                    geometryType: subGeoType,
-                    renderer: subRender
-                    });
-                // Here we add a prototype attribute 'subordinate' to the visiLayer so that we can access the feature layer again later
-                visiLayer.subordinate = featLayer;
-                // And return it
-                visiLayer.then( function( vLayer ) {
-                    console.log( vLayer );
-                });
-                visiLayer.load();
-                map.add( visiLayer );
-            });
-    }
+	// Creates and returns a simple renderer which produces the end of unit markers at the specified height (h)
+	function createBorderRenderer( h ) {
+		var borderSymbol = new PointSymbol3D({
+			symbolLayers: [new ObjectSymbol3DLayer({
+				width: 10,  // diameter of the object from east to west in meters
+				height: h,  // height of the object in meters
+				depth: 10,  // diameter of the object from north to south in meters
+				resource: { primitive: "cylinder" },
+				material: { color: "grey" }
+			})]
+		});
+
+		var borderRenderer = new SimpleRenderer({
+			symbol: borderSymbol
+		});
+	  
+		return borderRenderer
+	}
+	
+	// Function that fires every time any layer changes it's visibility state.
+	// Function will iterate through every layer visible in the layerList, will set their offsets incrementaly, effectively maintaining a collapsed stack
+	function fireOnVisibilityChange( lyr ) {
+		orderLayers( lyr );
+		restackLayers();
+	}
   
-    // Function that fires every time any layer changes it's visibility state.
-    // Function will iterate through every layer visible in the layerList, will set their offsets incrementaly, effectively maintaining a collapsed stack
-    function fireOnVisibilityChange( lyr ) {
-        console.log( "fireOnVisibilityChange(): START" );
-        updateElevationOffset();
-        console.log( "fireOnVisibilityChange(): END" );
-    }
+
+	// Function that fires whenever the camera finishes changing position
+	function fireOnCameraChange() {
+		view.camera.hasChanged = false; // Register the fact that we have accounted for this change.	
+		updateVisibleFeatures();
+	}
   
-    var szMapService = new MapImageLayer({
-        url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer"
-    });
-    szMapService.load();
-  
-    // Function that fires whenever the camera finishes changing position
-    function fireOnCameraChange() {
-        view.camera.hasChanged = false; // Register the fact that we have accounted for this change.    
-        //updateVisibleFeatures();
-    }
-  
-    function setWatchers() {
-        map.layers.forEach(
-            lyr => lyr.watch( "visible", 
-                function( lyr ){
-                    fireOnVisibilityChange( lyr )
-                }
-            ));
-        map.layers.on( "changes", function(event) { // Placeholder watcher. Fires every time a layer is added to or removed from the map.
-            console.log( 'map layers change' );
-        });
-        view.watch("camera",
-            function( camera ) {
-                camera.hasChanged = true;
-            });
-        view.watch("animation",
-            function( animating ) {
-                if( animating == null ) {
-                // If execution reaches this line, then the animation has just finished, not just started.
-                    if( view.interacted == true ) {
-                    // If execution reaches this line, it means that the user finished interacting with the view before the animation had finished processing.
-                        if( view.camera.hasChanged == true ) {
-                            fireOnCameraChange();
-                        }
-                    }
-                
-                }
-            });
-        view.watch("interacting",
-            function( interacting ) {
-                // If this function has fired, and animation == null, that means that whatever interaction was taking place has just finished
-                if( interacting == false ) {
-                    if( view.animation == null ) {
-                    // If execution reaches this line, then the view is not processing an animation
-                        if( view.camera.hasChanged == true ) {
-                            fireOnCameraChange();
-                        }
-                    } 
-                    else {
-                        view.interacted = true; // Set a flag for the animation watcher to see when the animation finishes.
-                    }
-                }
-            });
-    }
+	function setWatchers() {
+		// Register events to the controls
+		var offsetInput = dom.byId("offsetInput");
+		on(offsetInput, "blur", restackLayers());
+		on(offsetInput, "keypress", elevationOffsetKeypress);
+		
+		map.layers.forEach(
+			lyr => lyr.watch( "visible", 
+				function( visible ){
+					fireOnVisibilityChange( lyr );
+				}
+			));
+		map.layers.on( "changes", function(event) { // Placeholder watcher. Fires every time a layer is added to or removed from the map.
+			console.log( 'map layers change' );
+		});
+		
+		// These next three watchers work in concert to call the function fireOnCameraChange exactly once every time the camera moves, but only after it finishes moving. Actually kinda tricky, so please be careful with these statements.
+		view.watch("camera",
+			function( camera ) {
+				camera.hasChanged = true;
+			});
+		view.watch("animation",
+			function( animating ) {
+				if( animating == null ) {
+				// If execution reaches this line, then the animation has just finished, not just started.
+					if( view.interacted == true ) {
+					// If execution reaches this line, it means that the user finished interacting with the view before the animation had finished processing.
+						if( view.camera.hasChanged == true ) {
+							fireOnCameraChange();
+						}
+					}
+				}
+			});
+		view.watch("interacting",
+			function( interacting ) {
+				// If this function has fired, and animation == null, that means that whatever interaction was taking place has just finished
+				if( interacting == false ) {
+					if( view.animation == null ) {
+					// If execution reaches this line, then the view is not processing an animation
+						if( view.camera.hasChanged == true ) {
+							fireOnCameraChange();
+						}
+					} 
+					else {
+						view.interacted = true; // Set a flag for the animation watcher to see when the animation finishes.
+					}
+				}
+			});
+	}
   
 	// Function to streamline our checking 
 	function isDesiredLayer( layer ) {
 		parent = extractFirstAncestor( layer );
-		if ((parent == "Biological Attributes" || parent == "Response Attributes" || parent == "Derived ShoreZone Attributes")&&layer.sublayers==null){
+		if ((parent == "Biological Attributes" || parent == "Response Attributes" || parent == "Derived ShoreZone Attributes")&&layer.sublayers==null&&layer.title!='Habitat Class'){
 			return true;
 		}
 		return false;
 	}
-    // Loads all of the appropriate layers from szMapService into the map.
-    // Add functionality: Wrap all incoming FeatureLayers in GraphicsLayers and clone all of the personal info from the FeatureLayer.
-    // This way, we can query the FeatureLayer, and use the GraphicsLayer to display the results of said query.
-    // Don't add the FeatureLayer to the map, only add the GraphicsLayer
-    function loadLayers() {
-        console.log( 'Loading layers into map.' );
-        var count = 0
-        for (var index in szMapService.allSublayers.items) {
-            layer = szMapService.allSublayers.items[index];
-            if ( isDesiredLayer( layer )==true ) { 
-                // Create the feature layer from the REST service
-                layer_url = layer.url;
-                layer_title = layer.title;
-                featLayer = new FeatureLayer({
-                    visible: false, // Every layer starts out hidden.
-                    url: layer_url,
-                    title: layer_title,
-                    definitionExpression: "VIDEOTAPE='SE04_06'", // This expression limits the features drawn to approximately Berner's bay
-                    elevationInfo: {
-                          mode: "relative-to-ground",
-                          offset: count * layer_spacing
-                    }
-                });
-				
-				/* This block of code invokes the whole 'wrapper layer' side of things. No need for this for the demo.
-                featLayer.then( function(featLayer) {
-                    // Now the feature layer created from the REST service is loaded, and is available to us as featLayer. Now create the   layer that will wrap around it.
-                    visiLayer = createWrapperLayer( featLayer );
-                    // createWrapperLayer will add the layer to the map, so we don't have to do that here.
-                });
-                featLayer.load();
-				*/
+	// Loads all of the appropriate layers from szMapService into the map.
+	function loadLayers() {
+		for (var index in szMapService.allSublayers.items) {
+			layer = szMapService.allSublayers.items[index];
+			if ( isDesiredLayer( layer )==true ) { 
+				// Create the feature layer from the REST service
+				layer_url = layer.url;
+				layer_title = layer.title;
+				featLayer = new FeatureLayer({
+					visible: false, // Every layer starts out hidden.
+					url: layer_url,
+					title: layer_title,
+					elevationInfo: {
+						  mode: "relative-to-ground",
+						  offset: 0
+					}
+				});
 				map.add( featLayer )
-                count++;
-            }
-        }
-    }
+				featLayer.load()
+			}
+		}
+	}
 
-    // Recursive function that determines the highest ancestor of the given layer
-    function extractFirstAncestor( layer ) {
-        if ( layer.parent.title == szMapService.title ) {
-              return layer.title;
-        }
-        else {
-            return extractFirstAncestor( layer.parent )
-        }
-    }
+	// Recursive function that determines the highest ancestor of the given layer
+	function extractFirstAncestor( layer ) {
+		if ( layer.parent.title == szMapService.title ) {
+			  return layer.title;
+		}
+		else {
+			return extractFirstAncestor( layer.parent )
+		}
+	}
   
-    // Create Unit End Markers as a FeatureLayer, set the elevation mode and add to the map
-    function buildUEM( height ) {
-        var layerBounds = new FeatureLayer({
-          title: "Unit End Marker",
-          url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer/58",
-          definitionExpression: "Start_PHY_IDENT LIKE '10/04%'",
-          elevationInfo: {
-            mode: "relative-to-ground",
-            offset: 0
-          },
-          renderer: createBorderRenderer( height )
-        });
-        return layerBounds;
-    }
+	function orderLayers( layer ) {
+		// We can only keep track of the layer's ID values. 
+		// Layer's can only have one parent, so by adding the layer to the layer_order list directly, we remove it from the map.
+		if( layer.visible == true ) {
+			// If this is the case, then the layer was just turned on, and needs to be put on top of the stack.
+			map.layer_order.push( layer.id );
+		}
+		else {
+			// If this is the case, then the layer was just hidden, and we need to remove it from the stack entirely.
+			index = map.layer_order.indexOf( layer.id );
+			map.layer_order.splice( index, 1 );
+		}
+	}
+	
+	// Function that redraws the layers into the order that they have been added to the map.
+	// Respects the soveriegnty of the UEM, which will always be at offset = 0
+	function restackLayers() {
+		// First we retrieve the offset value from the appropriate Dom element
+		var offset;
+		try {
+			offset = parseFloat(offsetInput.value, 10);
+		} catch (e) {
+			return e;
+		}
+		// Now we know how far apart to space our layers
+		var i = 0 // Our iteration index
+		for( var index in map.layer_order ) {
+			// map.layer_order only keeps track of the layer IDs, so we need to do a lookup to get ahold of the actual layer
+			layer_id = map.layer_order[index]
+			if ( layer_id == UEM_ID ) {
+				// We never adjust the offset of the UEM
+				continue;
+			}
+			layer = map.findLayerById( layer_id );
+			// Now we just manually adjust the offset
+			layer.elevationInfo = {
+					mode: "relative-to-ground",
+					offset: i * offset
+				}
+			console.log( 'Set ' + layer.title + ' offset to ' + i * offset );
+			i++;
+		}
+		// Update Unit End Markers height to be equal to the highest layer, unless there's only one layer. Then make it equal to 1 * the offset height
+		if ( i - 1 < 1 ) {
+			i = 1	
+		}
+		else {
+			i = i - 1 // i was incremented once after the last layer was added, so we need to account for that here.
+		}
+		UEM = map.findLayerById( UEM_ID )
+		// This function gets called during startup before UEM has been defined and added to the map.
+		// This bypasses the inevietable error.
+		if ( UEM != null ) {
+			UEM.renderer = createBorderRenderer( (i)*offset );
+		}
+	};
+  
+	// Create Unit End Markers as a FeatureLayer, set the elevation mode and add to the map
+	function buildUEM( height ) {
+		var UEM = new FeatureLayer({
+		  title: "Unit End Marker",
+		  url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZoneMapService/MapServer/58",
+		  //definitionExpression: "Start_PHY_IDENT LIKE '10/04%'",
+		  elevationInfo: {
+			mode: "relative-to-ground",
+			offset: 0
+		  },
+		  renderer: createBorderRenderer( height )
+		});
+		return UEM;
+	}
 
-    // Register events to the controls
-    var offsetInput = dom.byId("offsetInput");
-    
-    on(offsetInput, "blur", updateElevationOffset);
-    on(offsetInput, "keypress", elevationOffsetKeypress);
+	// Register events to the controls
+	var offsetInput = dom.byId("offsetInput");
+	
+	on(offsetInput, "blur", restackLayers());
+	on(offsetInput, "keypress", elevationOffsetKeypress);
+	
 	/* Implements a query button, useful for debugging the query infrastructure.
-    var queryInput = dom.byId("queryButton");
+	var queryInput = dom.byId("queryButton");
 	queryInput.onclick = function() {
-        updateVisibleFeatures();
-    }; */
+		updateVisibleFeatures();
+	}; */
   
+	function elevationOffsetKeypress(ev) {
+	  if (ev.which === 13) {
+		  restackLayers();
+	  }
+	}
+	
+	function updateVisibleFeatures() {
+		var result = sceneViewExtent(view);
+		// If the returned extent is null, that probably means that the extent has at least one corner in space, so it can't be used. By simply ending the function here, we avoid the inevietable error that will be thrown later, and crash the program.
+		if( result == null ) {
+			return;
+		}
+		ext3D = result.extent;
+		var defExpr = "INSIDE_X > " + ext3D.xmin + " AND INSIDE_X < " + ext3D.xmax + " AND INSIDE_Y > " + ext3D.ymin + " AND INSIDE_Y < " + ext3D.ymax;
+		// defExpr now represents a definition expression that will limit the features drawn to those fully visible in the current extent.
+		
+		map.layers.forEach(function(layer) {
+			layer.definitionExpression = defExpr;
+		});
+	}
   
-    function updateElevationOffset() {
-        var offset;
-
-        try {
-            offset = parseFloat(offsetInput.value, 10);
-        } catch (e) {
-            return e;
-        }
-        var i = 0;
-        map.layers.forEach(function(layer) {
-            if (layer.visible == true && layer.id != layerBounds.id) { // Cycle through every layer except for the layer bounds layer.
-                layer.elevationInfo = {
-                    mode: "relative-to-ground",
-                    offset: i * offset
-                }
-                i++;
-            }
-        });
-        // Update Unit End Markers height
-        if( dynamicallyUpdateUEM == true ) {
-            layerBounds.renderer = createBorderRenderer( (i-1)*offset );
-        }
-    };
-
-    function elevationOffsetKeypress(ev) {
-      if (ev.which === 13) {
-          updateElevationOffset();
-      }
-    }
-    
-    function updateVisibleFeatures() {
-        map.layers.forEach(function(layer) {
-            if ( layer.visible == true && layer.id != layerBounds.id ) { // Cycle through every layer except for the layer bounds layer.
-                visibleFeats = findFeaturesInCameraExtent( layer.subordinate );
-                visibleFeats.then( 
-                    function( visibleFeats ) {
-                        layer.source = visibleFeats.features;
-						layer.refresh()
-                        console.log( layer );
-                    },
-                    function( reason ) {
-                        console.log( 'Updating visible features failed: ', reason );
-                    });
-            }
-        });
-    }
-  
-    // Function which, given a layer, will return the features of that layer that are contained within the current camera extent.
-    // Function returns a promise, and the resultant featureSet should be accessed with the '.then()' function
-    function findFeaturesInCameraExtent( layer ) {
-        var query = layer.createQuery(); // Function that creates a query that respects all of the various attributes of the layer in question
-        query.geometry = view.extent
-        query.spatialRelationship = "contains";
-        var results = layer.queryFeatures( query ) // Apply the spatial query to the layer, and return a promise of the result
-        // Returns a promise which, once resolved, will contain all of the features returned by the query
-        return results;
-    }
-
-    // Calculate true extent of tilted 3D view.  Returns a Polygon.
-    // Parameters:
-    //   view is the SceneView being used
-    //   m is an optional margin, in pixels.  Defaults to 0.
-    function sceneViewExtent(view, m) {
-        if (m === undefined)
-            m = 0;
-        // Make an array of the corners of the view container (in pixels)
-        var maxX = view.container.offsetWidth;
-        var maxY = view.container.offsetHeight;
-        var screenPoints = [[m,m], [maxX-m,m], [maxX-m,maxY-m], [m,maxY-m]];
-        var mapPoints = [];
-        for (var p=0; p<screenPoints.length; p++) {
-            var screenPoint = new Point({x: screenPoints[p][0], y: screenPoints[p][1], z: 0});
-            var mapPoint = view.toMap(screenPoint);
-            if (!mapPoint)
-                return null;
-            mapPoints.push([mapPoint.x, mapPoint.y, mapPoint.z]);
-        }
-        mapPoints.push(mapPoints[0]);
-        var newPolygon = new Polygon(mapPoints);
-        return newPolygon;
-    }
+	// Calculate true extent of tilted 3D view.  Returns a Polygon.
+	// Parameters:
+	//   view is the SceneView being used
+	//   m is an optional margin, in pixels.  Defaults to 0.
+	function sceneViewExtent(view, m) {
+		if (m === undefined)
+			m = 0;
+		// Make an array of the corners of the view container (in pixels)
+		var maxX = view.container.offsetWidth;
+		var maxY = view.container.offsetHeight;
+		var screenPoints = [[m,m], [maxX-m,m], [maxX-m,maxY-m], [m,maxY-m]];
+		var mapPoints = [];
+		for (var p=0; p<screenPoints.length; p++) {
+			var screenPoint = new Point({x: screenPoints[p][0], y: screenPoints[p][1], z: 0});
+			var mapPoint = view.toMap(screenPoint);
+			if (!mapPoint)
+				return null;
+			mapPoints.push([mapPoint.x, mapPoint.y, mapPoint.z]);
+		}
+		mapPoints.push(mapPoints[0]);
+		var newPolygon = new Polygon(mapPoints);
+		return newPolygon;
+	}
 
 
-      
-    function getSubLayerID(mapImageLayer, subLayerName) {
-        var li = mapImageLayer.allSublayers;
-        var layerName = subLayerName[0];
-        for (var i=0; i<li.length; i++) {
-            if (li.items[i].title==subLayerName)
-                 return li.items[i].id;
-            }
-        return -1;
-    }
-      
-    // Function that performs all of the necessary one-time setup when the application is first loaded.
-    // Function is not executed until the ShoreZone map service is fully loaded.
-    function init(){   
-        console.log( 'LOADING LAYERS...' );
-        loadLayers(); // Load the layers into the map.
-        console.log( 'BUILDING UEM...' );
-        layerBounds = buildUEM( initial_EM_height );
-        map.add( layerBounds );
-        console.log( 'SETTING WATCHERS...' );
-        setWatchers(); // Add watchers to all of the layers. Each watcher fires when it's layer's visibility changes. Calls fireOnVisibilityChange()
-        console.log( 'BUILDING LEGEND...' );
-        createLegend();
-        console.log( 'BUILDING LAYER LIST...' );
-        createLayerList();
-    };
-      
-    // Function that fires once the szMapService has completely loaded. Since we have to wait for that to initialize basically every part of the web app, we just wait and then call the init() function, which intitializes all of the layers and widgets that we need.
-    szMapService.watch("loaded", function() {
-      init();
-    });
-    
+	  
+	function getSubLayerID(mapImageLayer, subLayerName) {
+		var li = mapImageLayer.allSublayers;
+		var layerName = subLayerName[0];
+		for (var i=0; i<li.length; i++) {
+			if (li.items[i].title==subLayerName)
+				 return li.items[i].id;
+			}
+		return -1;
+	}
+	  
+	// Function that performs all of the necessary one-time setup when the application is first loaded.
+	// Function is not executed until the ShoreZone map service is fully loaded.
+	function init(){   
+		console.log( 'LOADING LAYERS...' );
+		loadLayers(); // Load the layers into the map.
+		console.log( 'BUILDING UEM...' );
+		UEM = buildUEM( initial_EM_height );
+		map.add( UEM );
+		UEM_ID = UEM.id;
+		// Add watchers to all of the layers. Each watcher fires when it's layer's visibility changes. Calls fireOnVisibilityChange()
+		console.log( 'SETTING WATCHERS...' );
+		setWatchers(); 
+		// Create the legend widget, add the layers to it, and add it to the map.
+		console.log( 'BUILDING LEGEND...' );
+		createLegend();
+		console.log( 'BUILDING LAYER LIST...' );
+		createLayerList();
+	};
+	
+	// Now that all of our code is defined and ready, we load the map service, which will trigger the initialization of the entire app.
+	szMapService.load()  
+	// Function that fires once the szMapService has completely loaded. Since we have to wait for that to initialize basically every part of the web app, we just wait and then call the init() function, which intitializes all of the layers and widgets that we need.
+	szMapService.then(
+		function() {
+			init();
+		}
+	);
 });
 
-      
+	  
 
 
 
@@ -460,15 +437,15 @@
 <body>
 <div id="viewDiv"></div>
 <div id="elevationDiv">
-    <table>
-        <tr>
-            <td>Layer spacing:</td>
-            <td><input id="offsetInput" type="text" size="5" value="100"></td>
-        </tr>
-        <!--<tr> Adds a button to the UI, which can be linked to the query testing functionality a few lines above.
-            <td><input type="button" id="queryButton" name="queryButton" value="Query"</td>
-        </tr>-->
-    </table>
+	<table>
+		<tr>
+			<td>Layer spacing:</td>
+			<td><input id="offsetInput" type="text" size="5" value="100"></td>
+		</tr>
+		<!--<tr> Adds a button to the UI, which can be linked to the query testing functionality a few lines above.
+			<td><input type="button" id="queryButton" name="queryButton" value="Query"</td>
+		</tr>-->
+	</table>
 </div>
 </body>
 </html>
