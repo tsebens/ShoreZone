@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Use elevationInfo in 3D visualization - 4.3</title>
+<title>Use elevationInfo in 3D visualization - 4.5</title>
 <style>
 	html,
 	body,
@@ -33,8 +33,8 @@
 	}
 </style>
 
-<link rel="stylesheet" href="https://js.arcgis.com/4.3/esri/css/main.css">
-<script src="https://js.arcgis.com/4.3/"></script>
+<link rel="stylesheet" href="https://js.arcgis.com/4.5/esri/css/main.css">
+<script src="https://js.arcgis.com/4.5/"></script>
 
 <script>
 	require([
@@ -62,15 +62,17 @@
 		"dojo/dom",
 		"dojo/domReady!"
 	], function(Map, SceneView, FeatureLayer, GroupLayer, MapImageLayer, SimpleRenderer, Renderer, Point, Polygon, PointSymbol3D, ObjectSymbol3DLayer, LayerList, Legend, Query, QueryTask, urlUtils, GraphicsLayer, Graphic, watchUtils, Collection, on, dom) {	
+	// If True, then each function will print to the console what it's doing, at all times, in great detail. 
+	// Useful for debugging and tracking down errors.
+	var verbose = false;
 	// Some configuration variables
 	var layer_spacing = 20; // The initial spacing of the layers
 	var initial_EM_height = 100; // The initial height of the unit-end markers
-	var dynamicallyUpdateUEM = true;
 	var UEM_ID = null
 
 	// Define the map service that all of the data is loaded from
 	var szMapService = new MapImageLayer({
-		url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZone_am/MapServer"
+		url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZone/MapServer"
 	});
 	
 	// Create the Map
@@ -92,6 +94,12 @@
 		}
 	});
 
+	function printIfVerbose( msg ) {
+		if( verbose == true ) {
+			console.log( msg );
+		}
+	}
+	
 	function createLayerList() {
 		// Object that displays all available layers and their visiblity status	  
 		var layerList = new LayerList({
@@ -157,10 +165,10 @@
 		orderLayers( lyr );
 		restackLayers();
 	}
-  
 
 	// Function that fires whenever the camera finishes changing position
 	function fireOnCameraChange() {
+		printIfVerbose( 'Camera has changed position in some way.' );
 		view.camera.hasChanged = false; // Register the fact that we have accounted for this change.	
 		updateVisibleFeatures();
 	}
@@ -257,8 +265,9 @@
 	}
   
 	function orderLayers( layer ) {
-		// We can only keep track of the layer's ID values. 
+		
 		// Layer's can only have one parent, so by adding the layer to the layer_order list directly, we remove it from the map.
+		// So instead we'll just keep track of the layers' ID values. 
 		if( layer.visible == true ) {
 			// If this is the case, then the layer was just turned on, and needs to be put on top of the stack.
 			map.layer_order.push( layer.id );
@@ -285,7 +294,7 @@
 		for( var index in map.layer_order ) {
 			// map.layer_order only keeps track of the layer IDs, so we need to do a lookup to get ahold of the actual layer
 			layer_id = map.layer_order[index]
-			if ( layer_id == UEM_ID ) {
+			if ( layer_id == map.UEM_ID ) {
 				// We never adjust the offset of the UEM
 				continue;
 			}
@@ -295,7 +304,6 @@
 					mode: "relative-to-ground",
 					offset: i * offset
 				}
-			console.log( 'Set ' + layer.title + ' offset to ' + i * offset );
 			i++;
 		}
 		// Update Unit End Markers height to be equal to the highest layer, unless there's only one layer. Then make it equal to 1 * the offset height
@@ -305,9 +313,9 @@
 		else {
 			i = i - 1 // i was incremented once after the last layer was added, so we need to account for that here.
 		}
-		UEM = map.findLayerById( UEM_ID )
+		UEM = map.findLayerById( map.UEM_ID )
 		// This function gets called during startup before UEM has been defined and added to the map.
-		// This bypasses the inevietable error.
+		// This prevents the inevietable error.
 		if ( UEM != null ) {
 			UEM.renderer = createBorderRenderer( (i)*offset );
 		}
@@ -347,18 +355,32 @@
 	}
 	
 	function updateVisibleFeatures() {
+		printIfVerbose( 'Updating visible features.' );
 		var result = sceneViewExtent(view);
 		// If the returned extent is null, that probably means that the extent has at least one corner in space, so it can't be used. By simply ending the function here, we avoid the inevietable error that will be thrown later, and crash the program.
 		if( result == null ) {
+			printIfVerbose( 'View extent is NULL. View likely extends into space.' );
 			return;
 		}
+		printIfVerbose( 'View extent succesffuly retrieved. Forming definition expression' );
 		ext3D = result.extent;
 		var defExpr = "INSIDE_X > " + ext3D.xmin + " AND INSIDE_X < " + ext3D.xmax + " AND INSIDE_Y > " + ext3D.ymin + " AND INSIDE_Y < " + ext3D.ymax;
+		// The UEM fields are labeled slightly differently, and so it needs it's own sligtly different definition expression
+		var UEMdefExpr = "POINT_X > " + ext3D.xmin + " AND POINT_X < " + ext3D.xmax + " AND POINT_Y > " + ext3D.ymin + " AND POINT_Y < " + ext3D.ymax;
 		// defExpr now represents a definition expression that will limit the features drawn to those fully visible in the current extent.
-		
+		printIfVerbose( 'Now appending definition expression to each layer:' );
 		map.layers.forEach(function(layer) {
-			layer.definitionExpression = defExpr;
+			printIfVerbose( 'Adding definition expression to ' + layer.title + '...' );
+			if( layer.id == map.UEM_ID ) {			
+				// We have the give the UEM it's specially tailored definition expression
+				layer.definitionExpression = UEMdefExpr;
+			}
+			else {
+				// All other layers recieve the same expression
+				layer.definitionExpression = defExpr;
+			}
 		});
+		printIfVerbose( 'Definition expression successfully added to all layers.' )
 	}
   
 	// Calculate true extent of tilted 3D view.  Returns a Polygon.
@@ -366,6 +388,7 @@
 	//   view is the SceneView being used
 	//   m is an optional margin, in pixels.  Defaults to 0.
 	function sceneViewExtent(view, m) {
+		printIfVerbose( 'Determining scene view extent...' )
 		if (m === undefined)
 			m = 0;
 		// Make an array of the corners of the view container (in pixels)
@@ -405,7 +428,8 @@
 		console.log( 'BUILDING UEM...' );
 		UEM = buildUEM( initial_EM_height );
 		map.add( UEM );
-		UEM_ID = UEM.id;
+		// Once we've assined the UEM layer to the Map, the layer has an ID that we can record to make later references to the layer easy
+		map.UEM_ID = UEM.id;
 		// Add watchers to all of the layers. Each watcher fires when it's layer's visibility changes. Calls fireOnVisibilityChange()
 		console.log( 'SETTING WATCHERS...' );
 		setWatchers(); 
