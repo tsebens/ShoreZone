@@ -64,7 +64,7 @@
 	], function(Map, SceneView, FeatureLayer, GroupLayer, MapImageLayer, SimpleRenderer, Renderer, Point, Polygon, PointSymbol3D, ObjectSymbol3DLayer, LayerList, Legend, Query, QueryTask, urlUtils, GraphicsLayer, Graphic, watchUtils, Collection, on, dom) {	
 	// If True, then each function will print to the console what it's doing, at all times, in great detail. 
 	// Useful for debugging and tracking down errors.
-	var verbose = false;
+	var verbose = true;
 	// Some configuration variables
 	var layer_spacing = 20; // The initial spacing of the layers
 	var initial_EM_height = 100; // The initial height of the unit-end markers
@@ -225,20 +225,83 @@
   
 	// Function to streamline our checking 
 	function isDesiredLayer( layer ) {
-		parent = extractFirstAncestor( layer );
-		if ((parent == "Biological Attributes" || parent == "Response Attributes" || parent == "Derived ShoreZone Attributes")&&layer.sublayers==null&&layer.title!='Habitat Class'){
+		//parent = extractFirstAncestor( layer );
+		title = layer.title;
+		if ((title == "Biological Attributes" || title == "Response Attributes" || title == "Derived ShoreZone Attributes")){
 			return true;
 		}
 		return false;
 	}
 	// Loads all of the appropriate layers from szMapService into the map.
+	
+	function buildGroupLayer( layer ) {
+		printIfVerbose( layer.title + ' is a Group layer.' );
+		layer_url = layer.url;
+		layer_sublayers = [];
+		for( var index in layer.sublayers ) {
+			sublayer = buildLayer( layer.sublayers.items[index] );
+			printIfVerbose( 'Building ' + sublayer.title + ' as a sublayer for ' + layer.title ); 
+			layer_sublayers.push( sublayer );
+		}
+		printIfVerbose( 'Added ' + layer_sublayers.length + ' sublayers to ' + layer.title );
+		groupLayer = new GroupLayer({
+			visible: false,
+			url: layer_url,
+			sublayers: layer_sublayers,
+			portalItem: null
+		});
+		return groupLayer;
+	}
+	
+	function buildFeatureLayer( layer ) {
+		printIfVerbose( layer.title + ' is a Feature layer. Creating client side feature layer.' );
+		layer_url = layer.url;
+		featLayer = new FeatureLayer({
+			visible: false, // Every layer starts out hidden.
+			url: layer_url,
+			elevationInfo: {
+				  mode: "relative-to-ground",
+				  offset: 0
+			}
+		});
+		return featLayer;
+	}
+	
+	function buildLayer( layer ) {
+		printIfVerbose( 'Building ' + layer.title );
+		outLayer = layer.then( 
+			function( layer ) {
+				printIfVerbose( layer.title + ' has loaded. Determining if layer is Group or Feature Layer' );
+				outLayer = null;
+				if( layer.type == 'feature' ) {
+					outLayer = buildFeatureLayer( layer )
+				}
+				if( layer.type == 'group' ) {
+					outLayer = buildGroupLayer( layer )
+				}
+				return outLayer;
+			},
+			// Error messages:
+			function( reason ) {
+				printIfVerbose( 'Error encountered while building ' + layer.title );
+				printIfVerbose( reason );
+			}
+		);
+		printIfVerbose( 'Loading ' + layer.title );
+		layer.load();
+		return outLayer; 
+	}
+	
 	function loadLayers() {
 		for (var index in szMapService.allSublayers.items) {
 			layer = szMapService.allSublayers.items[index];
 			if ( isDesiredLayer( layer )==true ) { 
+				console.log( 'Considering ' + layer.title );
 				// Create the feature layer from the REST service
+				/*
 				layer_url = layer.url;
 				layer_title = layer.title;
+				layer_sublayers = layer.sublayers;
 				featLayer = new FeatureLayer({
 					visible: false, // Every layer starts out hidden.
 					url: layer_url,
@@ -246,10 +309,13 @@
 					elevationInfo: {
 						  mode: "relative-to-ground",
 						  offset: 0
-					}
+					},
+					sublayers: layer_sublayers
 				});
-				map.add( featLayer )
-				featLayer.load()
+				*/
+				builtLayer = buildLayer( layer ); // layer is a promise returned by the 
+				printIfVerbose( 'Adding ' + layer.title + ' to map.' );
+				map.add( builtLayer );
 			}
 		}
 	}
@@ -438,6 +504,13 @@
 		createLegend();
 		console.log( 'BUILDING LAYER LIST...' );
 		createLayerList();
+		setTimeout(
+			function(){ 
+				console.log( 'report' );
+				console.log( map ); 
+			}, 
+			3000
+		);
 	};
 	
 	// Now that all of our code is defined and ready, we load the map service, which will trigger the initialization of the entire app.
