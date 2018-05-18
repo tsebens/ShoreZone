@@ -31,8 +31,15 @@
 		background-color: rgba(0, 0, 0, 0.5);
 		color: white;
 	}
+
+	/*  The following hides the visibility checkbox for group layers, and disables turning them off via mouse-click  */
+/*  NOTE:  All group layers MUST have the "visible" property set to true  */
+.esri-layer-list__item--has-children > .esri-layer-list__item-container > .esri-layer-list__item-label  {pointer-events: none;}
+.esri-layer-list__item--has-children > .esri-layer-list__item-container > .esri-layer-list__item-label > .esri-layer-list__item-toggle {visibility: hidden; display: none  }
+div.esri-popup__feature-buttons {display: none;}
 </style>
 
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.0/jquery.min.js"></script>
 <link rel="stylesheet" href="https://js.arcgis.com/4.5/esri/css/main.css">
 <script src="https://js.arcgis.com/4.5/"></script>
 
@@ -53,6 +60,7 @@
 		"esri/widgets/Legend",
 		"esri/tasks/support/Query",
 		"esri/tasks/QueryTask",
+		"esri/request",
 		"esri/core/urlUtils",
 		"esri/core/Collection",
 		"esri/layers/GraphicsLayer", 
@@ -61,20 +69,42 @@
 		"dojo/on",
 		"dojo/dom",
 		"dojo/domReady!"
-	], function(Map, SceneView, FeatureLayer, GroupLayer, MapImageLayer, SimpleRenderer, Renderer, Point, Polygon, PointSymbol3D, ObjectSymbol3DLayer, LayerList, Legend, Query, QueryTask, urlUtils, GraphicsLayer, Graphic, watchUtils, Collection, on, dom) {	
+	], function(Map, SceneView, FeatureLayer, GroupLayer, MapImageLayer, SimpleRenderer, Renderer, Point, Polygon, PointSymbol3D, ObjectSymbol3DLayer, LayerList, Legend, Query, QueryTask, esriRequest, urlUtils, GraphicsLayer, Graphic, watchUtils, Collection, on, dom) {	
 	// If True, then each function will print to the console what it's doing, at all times, in great detail. 
 	// Useful for debugging and tracking down errors.
-	var verbose = true;
+	var verbose = false;
 	// Some configuration variables
 	var layer_spacing = 20; // The initial spacing of the layers
 	var initial_EM_height = 100; // The initial height of the unit-end markers
-	var UEM_ID = null
+	var UEM_ID = null;
+	var LAYER_FEATURE_LIMIT = 4000; // TODO: This should be a lookup call, not a hardcoded value.
+
+
+	// Used for debugging. Provides a print interface that can be universally turned on or off
+	function printIfVerbose( msg ) {
+			if( verbose == true ) {
+				console.log( msg );
+			}
+	}
 
 	// Define the map service that all of the data is loaded from
 	var szMapService = new MapImageLayer({
 		url: "https://alaskafisheries.noaa.gov/arcgis/rest/services/ShoreZone/MapServer"
 	});
-	
+
+	esriRequest(szMapService.url, {
+	  responseType: "json"
+	}).then({
+		function(response){
+			console.log('json')
+			console.log(response.data);
+		},
+		function(reason) {
+			console.log("FAILURE");
+		}
+	});
+
+
 	// Create the Map
 	var map = new Map({
 		basemap: "streets",
@@ -91,8 +121,22 @@
 			position: [-135, 58.73, 5000],
 			heading: 20,
 			tilt: 60
-		}
+		},
+		popup: {
+			visible: false,
+			dockEnabled: true,
+			dockOptions: {
+				position: 'top-right', 
+				// Disables the dock button from the popup
+				buttonEnabled: false,
+				// Ignore the default sizes that trigger responsive docking
+				breakpoint: false,
+			}
+        }
 	});
+
+	// Create the popup we will use to indicate that the user's view extends too far into space
+	var popup = view.popup
 	
 	/** 
 	Takes in a layer and, based on it's visibility status, calls the appropriate function in the StackManager object.
@@ -106,9 +150,7 @@
 		}
 		*/
 		// Layer's can only have one parent, so by adding the layer to the layer_order list directly, we remove it from the map.
-		// So instead we'll just keep track of the layers' ID values. 
-		// fireOnVisibilityChange fires when a layer gets turned on or off, but can't tell us which it was.
-		// So we have to check ourselves, and then act appropriately
+		// So instead we'll just keep track of the layers' ID values.
 		if( layer.visible == true ) {
 			// If this is the case, then the layer was just turned on, and needs to be put on top of the stack.
 			stackManager.add(layer);
@@ -117,6 +159,7 @@
 			// If this is the case, then the layer was just hidden, and we need to remove it from the stack entirely.
 			stackManager.remove(layer);
 		}
+		
 		// Super simple stuff
 	}
 	
@@ -137,19 +180,25 @@
 			// We never adjust the offset of the UEM
 			if ( layer_id != map.UEM_ID ) {
 				// map.layer_order only keeps track of the layer IDs, so we need to do a lookup to get ahold of the actual layer
-				layer = findMapLayerById( layer_id );
-				printIfVerbose( 'Considering visibility status of: ' + layer.title );
-				printIfVerbose( layer );
-				// We only want to stack up visible layers.
-				if (layer.visible == true) {
+				var layer = findMapLayerById( layer_id );
+				//printIfVerbose( 'Considering visibility status of: ' + layer.title );
+				//printIfVerbose( layer );
+				// We only want to stack up visible layers that are not group layers.
+				if (layer.visible == true && layer.sublayers == null) {
 					printIfVerbose( 'Adding ' + layer.title + ' to the top of the stack.' );
 					// Now we just manually adjust the offset
+					var up = i * offset
+					// The line that sits right on the ground can be a little hard to see, so we'll raise it up just a tad
+					if (up == 0){
+						up = 5
+					}
 					layer.elevationInfo = {
 						mode: "relative-to-ground",
-						offset: i * offset
+						offset: up
 					};
 					// ...and increment i to account for the addition of another layer.
 					i++;
+					printIfVerbose(i)
 				}
 			}
 		});
@@ -160,12 +209,15 @@
 		else {
 			i = i - 1 // i was incremented once after the last layer was added, so we need to account for that here.
 		}
-		UEM = map.findLayerById( map.UEM_ID )
+		var UEM = map.findLayerById( map.UEM_ID )
 		// This function gets called during startup before UEM has been defined and added to the map.
 		// This prevents the inevietable error.
 		if ( UEM != null ) {
+			printIfVerbose('Creating UEM...')
 			UEM.renderer = createBorderRenderer( (i)*offset );
 		}
+		console.log("Finished restacking layers.");
+		console.log(stackManager)
 	};
 	
 	/**
@@ -194,7 +246,7 @@
 			layers.forEach(
 				function(layer){					 
 					// We don't want to add these layers to our order
-					if (layer.title != 'World Street Map' && layer.title != "Terrain3D") {
+					if (layer.title != 'World Street Map' && layer.title != "Terrain3D" && layer.sublayers == null) {
 						printIfVerbose( 'SM: Adding ' + layer.title + ' ID ' + layer.id + ' to order.' );
 						this.order.push(layer.id);
 						printIfVerbose( 'SM: ' + layer.title + ' ID added.' );
@@ -205,53 +257,18 @@
 		/**Adds a layer to the ordered stack, along with it's children as is appropriate*/
 		add: function(layer) {
 			printIfVerbose( 'SM: Adding layer to the top of the stack order...' );
-			this.order.unshift(
-				// This function returns the element we're removing, so we can use that return value to re-insert the value elsewhere
-				this.order.splice(
-					// First find the index of the layer_id we're looking for
-					this.order.indexOf(layer.id),
-					// And we're only removing one element.
-					1
-				)
-			)
-			// Now we check to see if the layer has any sublayers, and if it does we should load them in.
-			printIfVerbose( 'SM: Checking if layer has sublayers...' );
-			if (layer.sublayers != null) {
-				printIfVerbose( 'It does. Adding sublayers to top of stack order...' );
-				layer.sublayers.forEach(function(sublayer){
-					add(sublayer);
-				});
-			} else {
-				printIfVerbose( 'SM: It does not.' );
-			}
+			this.order.push(layer.id)
 		},
+
 		/**Removes a layer from the ordered stack, along with it's children.*/
 		remove: function(layer) {
 			printIfVerbose( 'SM: Moving layer to the bottom of the stack order...' );
-			this.order.push(
-				// This function returns the element we're removing, so we can use that return value to re-insert the value elsewhere
-				this.order.splice(
+			this.order.splice(
 					// First find the index of the layer_id we're looking for
 					this.order.indexOf(layer.id),
 					// And we're only removing one element.
 					1
 				)
-			)
-			// Now we check to see if the layer has any sublayers, and if it does we should load them in.
-			printIfVerbose( 'SM: Checking if layer has sublayers...' );
-			if (layer.sublayers != null) {
-				printIfVerbose( 'It does. Moving sublayers to bottom of stack order...' );
-				layer.sublayers.forEach(function(sublayer){
-					add(sublayer);
-				});
-			} else {
-				printIfVerbose( 'SM: It does not.' );
-			}
-			printIfVerbose( 'SM: New order of stack:' );
-			this.order.forEach( function(layer_id) {
-				var title = findMapLayerById(layer_id).title;
-				printIfVerbose( 'SM: ' + title );
-			});
 		},
 		/**Returns true iff all higher order parents of the given layer are visible.
 		 * Calling this function effectively assumes that the passed layer is visible.*/
@@ -259,8 +276,8 @@
 			if (layer.parent == null) {
 				return true; // If the layer has no parent, then effectively all parents are visible
 			} else {
-				if (layer.parent.visible == true) {
-					return allAncestorsVisible(layer.parent);
+				if (layer.parent.visible == true || layer.parent == map) { // TODO: Is there some better way to do this than referencing a global variable?
+					return this.allAncestorsVisible(layer.parent);
 				} else {
 					return false;
 				}
@@ -268,23 +285,7 @@
 		}
 	});
 
-	function printIfVerbose( msg ) {
-		if( verbose == true ) {
-			console.log( msg );
-		}
-	}
-	
-	function createLayerList() {
-		// Object that displays all available layers and their visiblity status	  
-		var layerList = new LayerList({
-			view: view
-		});
-		// Add the layer list to the view
-		view.ui.add(layerList, {
-			position: 'bottom-right'
-		});
-	}
-  
+
 	// Function that builds and returns the layerInfos object for the legend widget. Just references the map object, doesn't need any parameters.
 	function getLayerInfos() {
 		var layerInfos = [];
@@ -303,7 +304,10 @@
 		return layerInfos;
 	}
   
-	// Function that creates the Legend widget. Legend automatically references all layers in the map, excluding the World Street Map and the Terrain 3D Layers
+	/** 
+	Function that creates the Legend widget. Legend automatically references all layers in the map that are visible, 
+	excluding the World Street Map and the Terrain 3D Layers
+	*/
 	function createLegend() {  
 		var legend = new Legend({
 			view: view,
@@ -313,7 +317,21 @@
 		// Add widget to the bottom left corner of the view
 		view.ui.add(legend, "bottom-left");
 	}	 
-  
+
+	/**
+	Create the layer list, which will display all available layers, their visibility status, and their hierarchical relation to one another.
+	*/
+	function createLayerList() {
+		// Object that displays all available layers and their visiblity status	  
+		var layerList = new LayerList({
+			view: view
+		});
+		// Add the layer list to the view
+		view.ui.add(layerList, {
+			position: 'bottom-right'
+		});
+	}
+
 	// Creates and returns a simple renderer which produces the end of unit markers at the specified height (h)
 	function createBorderRenderer( h ) {
 		var borderSymbol = new PointSymbol3D({
@@ -333,8 +351,10 @@
 		return borderRenderer
 	}
 	
-	// Function that fires every time any layer changes it's visibility state.
-	// Function will iterate through every layer visible in the layerList, will set their offsets incrementaly, effectively maintaining a collapsed stack
+	/**
+	Function that fires every time any layer changes it's visibility state.
+	Will iterate through every layer visible in the layerList, will set their offsets incrementaly, effectively maintaining a collapsed stack
+	*/
 	function fireOnVisibilityChange( lyr ) {
 		printIfVerbose( 'Visibility of ' + lyr.title + ' has changed.' );
 		orderLayers( lyr );
@@ -346,6 +366,17 @@
 		printIfVerbose( 'Camera has changed position in some way.' );
 		view.camera.hasChanged = false; // Register the fact that we have accounted for this change.	
 		updateVisibleFeatures();
+	}
+
+	function featureLimitExceededAlert() {
+		if (popup.visible && popup.title == 'Feature limit exceeded.') {
+			return // What we came to do has already been done, so we don't need to do it.
+		} else {
+			popup.open({
+				title: 'Feature limit exceeded.',
+				content: "You have zoomed out too far, and the number of features within the camera bounds has exceeded the server's limit. Please zoom in."
+			})
+		}
 	}
   
 	function setWatchers() {
@@ -360,11 +391,15 @@
 					fireOnVisibilityChange( lyr );
 				}
 			));
+
 		map.allLayers.on( "changes", function(event) { // Placeholder watcher. Fires every time a layer is added to or removed from the map.
 			console.log( 'map layers change' );
 		});
 		
-		// These next three watchers work in concert to call the function fireOnCameraChange exactly once every time the camera moves, but only after it finishes moving. Actually kinda tricky, so please be careful with these statements.
+		/** 
+		These next three watchers work in concert to call the function fireOnCameraChange exactly once every time the camera moves, but only after it finishes 
+		moving. This was actually kinda tricky to get right, so please be careful with these lines of code.
+		*/
 		view.watch("camera",
 			function( camera ) {
 				camera.hasChanged = true;
@@ -401,7 +436,7 @@
 	// Function to streamline our checking
 	// Accepts a layer and should return true if that layer is a layer that we want in the map.
 	function isDesiredLayer( layer ) {
-		title = layer.title;
+		var title = layer.title;
 		// Since all sublayers are build from their parent group layers, the only layers we actually need to look for are these three
 		if ((title == "Biological Attributes" || title == "Response Attributes" || title == "Derived ShoreZone Attributes")){
 			return true;
@@ -412,8 +447,8 @@
 	function buildGroupLayer( layer ) {
 		printIfVerbose( layer.title + ' is a Group layer. Creating client side group layer...' );
 		
-		groupLayer = new GroupLayer({
-			visible: false,
+		var groupLayer = new GroupLayer({
+			visible: true,
 			url: layer.url,
 			title: layer.title,
 			listMode: 'show', // Indicates that all child layers should be shown in the list display
@@ -422,7 +457,7 @@
 		
 		layer.sublayers.forEach(function(child_layer){
 			printIfVerbose( 'Building ' + child_layer.title + ' as a sublayer for ' + layer.title ); 
-			sublayer = buildLayer( child_layer );
+			var sublayer = buildLayer( child_layer );
 			groupLayer.add( sublayer );
 		});
 		printIfVerbose( 'Added ' + groupLayer.layers.length + ' sublayers to ' + groupLayer.title );
@@ -432,8 +467,8 @@
 	
 	function buildFeatureLayer( layer ) {
 		printIfVerbose( layer.title + ' is a Feature layer. Creating client side feature layer.' );
-		layer_url = layer.url;
-		featLayer = new FeatureLayer({
+		var layer_url = layer.url;
+		var featLayer = new FeatureLayer({
 			visible: false, // Every layer starts out hidden.
 			url: layer_url,
 			elevationInfo: {
@@ -469,11 +504,11 @@
 	}
 	
 	function findMapLayerById( id ) {
-		printIfVerbose( 'Looking for layer with id == ' + id );
+		//printIfVerbose( 'Looking for layer with id == ' + id );
 		return map.allLayers.find(function(layer){
-			printIfVerbose( 'Considering layer ' + layer.title + ' with ID ' + layer.id + '...' );
+			//printIfVerbose( 'Considering layer ' + layer.title + ' with ID ' + layer.id + '...' );
 			if (layer.id == id) {
-				printIfVerbose( 'Returning ' + layer.title );
+				//printIfVerbose( 'Returning ' + layer.title );
 				return layer;
 			}
 		});
@@ -494,18 +529,6 @@
 		return UEM;
 	}
 
-	// Register events to the controls
-	var offsetInput = dom.byId("offsetInput");
-	
-	on(offsetInput, "blur", restackLayers());
-	on(offsetInput, "keypress", elevationOffsetKeypress);
-	
-	/* Implements a query button, useful for debugging the query infrastructure.
-	var queryInput = dom.byId("queryButton");
-	queryInput.onclick = function() {
-		updateVisibleFeatures();
-	}; */
-  
 	function elevationOffsetKeypress(ev) {
 	  if (ev.which === 13) {
 		  restackLayers();
@@ -515,10 +538,18 @@
 	function updateVisibleFeatures() {
 		printIfVerbose( 'Updating visible features.' );
 		var result = sceneViewExtent(view);
-		// If the returned extent is null, that probably means that the extent has at least one corner in space, so it can't be used. By simply ending the function here, we avoid the inevietable error that will be thrown later, and crash the program.
+		// If the returned extent is null, that probably means that the extent has at least one corner in space, so it can't be used. By simply ending the function here, we avoid the inevitable error that will be thrown later, and crash the program.
 		if( result == null ) {
 			printIfVerbose( 'View extent is NULL. View likely extends into space.' );
+			popup.open({
+				title: 'Invalid view',
+				content: 'The current view is invalid. Please zoom in until no corner of the view extends into the sky.'
+			})
 			return;
+		} else {
+			if (popup.visible ==  true && popup.title == 'Invalid view') {
+				popup.close()
+			}
 		}
 		printIfVerbose( 'View extent succesffuly retrieved. Forming definition expression' );
 		ext3D = result.extent;
@@ -527,17 +558,37 @@
 		var UEMdefExpr = "POINT_X > " + ext3D.xmin + " AND POINT_X < " + ext3D.xmax + " AND POINT_Y > " + ext3D.ymin + " AND POINT_Y < " + ext3D.ymax;
 		// defExpr now represents a definition expression that will limit the features drawn to those fully visible in the current extent.
 		printIfVerbose( 'Now appending definition expression to each layer:' );
+		feature_limit_flag = false;
 		map.allLayers.forEach(function(layer) {
-			printIfVerbose( 'Adding definition expression to ' + layer.title + '...' );
+			//printIfVerbose( 'Adding definition expression to ' + layer.title + '...' );
 			if( layer.id == map.UEM_ID ) {			
 				// We have the give the UEM it's specially tailored definition expression
 				layer.definitionExpression = UEMdefExpr;
 			}
 			else {
-				// All other layers recieve the same expression
+				// All other layers receive the same expression
 				layer.definitionExpression = defExpr;
+				/**
+				if (layer.visible){
+					view.whenLayerView(layer).then(
+						function(layer_view) {
+							layer_view.queryFeatureCount().then(
+								function(feature_count) {
+									if (feature_count > LAYER_FEATURE_LIMIT){
+										featureLimitExceededAlert();
+										feature_limit_flag = true;
+									}
+								}
+							)
+						}
+					)
+				}
+				*/
 			}
 		});
+		if (feature_limit_flag == false && popup.visible == true && popup.title == 'Feature limit exceeded.') {
+			popup.close()
+		}
 		printIfVerbose( 'Definition expression successfully added to all layers.' )
 	}
   
@@ -565,8 +616,6 @@
 		var newPolygon = new Polygon(mapPoints);
 		return newPolygon;
 	}
-
-
 	  
 	function getSubLayerID(mapImageLayer, subLayerName) {
 		var li = mapImageLayer.allSublayers;
@@ -577,7 +626,12 @@
 			}
 		return -1;
 	}
-	  
+	 
+	// Register events to the controls
+	var offsetInput = dom.byId("offsetInput");
+	on(offsetInput, "blur", restackLayers());
+	on(offsetInput, "keypress", elevationOffsetKeypress);
+
 	// Function that performs all of the necessary one-time setup when the application is first loaded.
 	// Function is not executed until the ShoreZone map service is fully loaded.
 	function init(){   
@@ -596,13 +650,6 @@
 		createLegend();
 		console.log( 'BUILDING LAYER LIST...' );
 		createLayerList();
-		printIfVerbose( 'POPULATING STACK MANAGER...' );
-		printIfVerbose( map.allLayers.items );
-		stackManager.populate_order( 
-			// Pass the list of all layers in the map:
-			map.allLayers
-		);
-		printIfVerbose( 'ADDED ' + stackManager.order.length + ' LAYERS TO THE STACK MANAGER.' )
 		setTimeout(
 			function(){ 
 				console.log( 'report' );
@@ -612,14 +659,15 @@
 		);
 	};
 	
-	// Now that all of our code is defined and ready, we load the map service, which will trigger the initialization of the entire app.
-	szMapService.load()  
 	// Function that fires once the szMapService has completely loaded. Since we have to wait for that to initialize basically every part of the web app, we just wait and then call the init() function, which intitializes all of the layers and widgets that we need.
 	szMapService.then(
 		function() {
 			init();
 		}
 	);
+	
+	// Now that all of our code is defined and ready, we load the map service, which will trigger the initialization of the entire app.
+	szMapService.load()  
 });
 </script>
 </head>
